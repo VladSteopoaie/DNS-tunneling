@@ -1,0 +1,14 @@
+build: dns_server.o dns_module.o connectsock.o
+	g++ -g dns_server.o dns_module.o connectsock.o -o bin/dns_server
+	@rm *.o
+
+dns_server.o: dns_server.cpp
+	g++ -g -c dns_server.cpp
+
+dns_module.o: modules/dns_module.cpp
+	g++ -g -c modules/dns_module.cpp
+
+connectsock.o: modules/connectsock.cpp
+	g++ -g -c modules/connectsock.cpp
+
+

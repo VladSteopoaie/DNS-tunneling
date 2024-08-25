@@ -1,0 +1,16 @@
+build: dns_tunnel.o dns_module.o connectsock.o encoders.o
+	g++ -g dns_tunnel.o dns_module.o connectsock.o encoders.o -o bin/dns_tunnel
+	@rm *.o
+
+dns_tunnel.o: dns_tunnel.cpp
+	g++ -g -c dns_tunnel.cpp
+
+dns_module.o: modules/dns_module.cpp
+	g++ -g -c modules/dns_module.cpp
+
+connectsock.o: modules/connectsock.cpp
+	g++ -g -c modules/connectsock.cpp
+
+encoders.o: modules/encoders.cpp
+	g++ -g -c modules/encoders.cpp
+
