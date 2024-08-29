@@ -1,0 +1,68 @@
+name: "DNS-tunneling"
+
+services:
+  dns_server:
+    build:
+      context: .
+      dockerfile: docker/dns_server_dockerfile
+    
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    
+    tty: true
+
+    networks:
+      dns_net:
+        ipv4_address: "172.11.180.232"
+    
+    depends_on:
+      - router
+    
+    command: bash -c "/scripts/setup.sh && sleep infinity"
+
+  router:
+    build:
+      context: .
+      dockerfile: docker/router_dockerfile
+
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    
+    tty: true
+
+    networks:
+      local_net:
+        ipv4_address: "192.168.100.1"
+      dns_net:
+        ipv4_address: "172.11.180.1"
+      remote_net:
+        ipv4_address: "10.8.8.1"
+      
+    sysctls:
+      - net.ipv4.ip_forward=1
+    
+    command: bash -c "/scripts/setup.sh && sleep infinity"
+    
+
+networks:
+  local_net: 
+    ipam:
+      driver: default
+      config:
+        - subnet: "192.168.100.0/24"
+          gateway: "192.168.100.254"
+  dns_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.11.180.0/24"
+          gateway: "172.11.180.254"
+  remote_net: 
+    ipam:
+      driver: default
+      config:
+        - subnet: "10.8.8.0/24"
+          gateway: "10.8.8.254"
+  

@@ -1,0 +1,7 @@
+FROM ubuntu:latest 
+
+RUN apt-get update && apt-get install -y iptables iproute2 dnsutils iputils-ping
+
+WORKDIR /
+RUN mkdir -p /scripts
+COPY router /scripts/
