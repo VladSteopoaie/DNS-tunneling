@@ -9,12 +9,37 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
+      - NET_RAW
     
     tty: true
 
     networks:
       dns_net:
         ipv4_address: "172.11.180.232"
+    
+    depends_on:
+      - router
+    
+    command: bash -c "/scripts/setup.sh && sleep infinity"
+
+  local:
+    build:
+      context: .
+      dockerfile: docker/local_dockerfile
+    
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - NET_RAW
+    
+    tty: true
+
+    networks:
+      local_net:
+        ipv4_address: "192.168.100.98"
+    
+    dns:
+      - 172.11.180.232
     
     depends_on:
       - router
@@ -29,6 +54,7 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
+      - NET_RAW
     
     tty: true
 
@@ -48,18 +74,24 @@ services:
 
 networks:
   local_net: 
+    driver_opts: 
+      com.docker.network.driver.mtu: "1500"
     ipam:
       driver: default
       config:
         - subnet: "192.168.100.0/24"
           gateway: "192.168.100.254"
   dns_net:
+    driver_opts: 
+      com.docker.network.driver.mtu: "1500"
     ipam:
       driver: default
       config:
         - subnet: "172.11.180.0/24"
           gateway: "172.11.180.254"
   remote_net: 
+    driver_opts: 
+      com.docker.network.driver.mtu: "1500"
     ipam:
       driver: default
       config:

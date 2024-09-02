@@ -931,12 +931,12 @@ IPv4Addr DnsPacket::get_resolved_ns(std::string qname)
 {
     std::vector<std::pair<std::string, std::string>> nses = get_ns(qname);
 
-    for (auto rec : resources)
+    for (auto rec : this->resources)
     {
-        bool okDomain =  std::any_of(nses.begin(), nses.end(), [&](const auto& pair) {
+        bool ok_domain =  std::any_of(nses.begin(), nses.end(), [&](const auto& pair) {
                 return pair.second == rec.domain;
             });
-        if (rec.qtype == QueryType::A && okDomain)
+        if (rec.qtype == QueryType::A && ok_domain)
             return IPv4Addr(rec.value);
     }
     return IPv4Addr(0);
