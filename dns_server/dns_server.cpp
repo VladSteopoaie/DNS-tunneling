@@ -30,7 +30,7 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
         ssize_t bytes_sent = sendto(socket, req_bytes, req_buffer.getPos(), 0, (struct sockaddr*) &server_addr, sizeof(server_addr));
         if (bytes_sent <= 0)
         {
-            close(socket)
+            close(socket);
             throw std::runtime_error("Some error occurred when sending data!\n");
         }
 
@@ -40,19 +40,19 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
 
         if (bytes_read <= 0)
         {
-            close(socket)
+            close(socket);
             throw std::runtime_error("Some error occurred when receiving data!\n");
         }
 
         BytePacketBuffer res_buffer = BytePacketBuffer(res_bytes, bytes_read);
         
-        close(socket)
+        close(socket);
         return DnsPacket::from_buffer(res_buffer);
 
     }
     catch (std::runtime_error e)
     {
-        close(socket)
+        close(socket);
         throw e;
     }
 }
