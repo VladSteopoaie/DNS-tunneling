@@ -5,7 +5,7 @@ import base64
 import socket
 import time
 
-DOMAIN = "retele.littlecloud.engineer"
+DOMAIN = "tunnel.mydomain.top"
    
 def send_receive_reliable(sock, packet, to):
     sock.sendto(bytes(packet), to)

@@ -1,6 +1,7 @@
 name: "DNS-tunneling"
 
 services:
+  #### DNS SERVER ####
   dns_server:
     build:
       context: .
@@ -22,6 +23,7 @@ services:
     
     command: bash -c "/scripts/setup.sh && sleep infinity"
 
+  #### LOCAL ####
   local:
     build:
       context: .
@@ -43,9 +45,34 @@ services:
     
     depends_on:
       - router
+      - dns_server
+
+    command: bash -c "/scripts/setup.sh && sleep infinity"
+  
+  #### REMOTE ####
+  remote:
+    build:
+      context: .
+      dockerfile: docker/remote_dockerfile
+    
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - NET_RAW
+    
+    tty: true
+
+    networks:
+      local_net:
+        ipv4_address: "10.8.8.16"
+    
+    depends_on:
+      - router
+      - dns_server
     
     command: bash -c "/scripts/setup.sh && sleep infinity"
 
+  #### ROUTER ####
   router:
     build:
       context: .
@@ -71,7 +98,7 @@ services:
     
     command: bash -c "/scripts/setup.sh && sleep infinity"
     
-
+#### NETWORKS ####
 networks:
   local_net: 
     driver_opts: 

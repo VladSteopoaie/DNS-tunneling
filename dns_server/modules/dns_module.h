@@ -31,6 +31,7 @@ namespace QueryTypeFunc {
     uint16_t to_num(QueryType x);
     QueryType from_num(uint16_t n);
     std::string to_string(QueryType qtype);
+    QueryType from_string(std::string str);
 }
 
 enum ResultCode {

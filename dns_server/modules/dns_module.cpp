@@ -74,6 +74,24 @@ std::string QueryTypeFunc::to_string(QueryType qtype)
     }
 }
 
+QueryType QueryTypeFunc::from_string(std::string str) 
+{
+    if (!strcmp(str.c_str(), "A"))
+        return QueryType::A;
+    if (!strcmp(str.c_str(), "NS"))
+        return QueryType::NS;
+    if (!strcmp(str.c_str(), "CNAME"))
+        return QueryType::CNAME;
+    if (!strcmp(str.c_str(), "MX"))
+        return QueryType::MX;
+    if (!strcmp(str.c_str(), "TXT"))
+        return QueryType::TXT;
+    if (!strcmp(str.c_str(), "AAAA"))
+        return QueryType::AAAA;
+    
+    return QueryType::UNKNOWN;
+}
+
 
 /*################################*/
 /*---------[ ResultCode ]---------*/

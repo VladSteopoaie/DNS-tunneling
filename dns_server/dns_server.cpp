@@ -8,6 +8,8 @@
 #include <fstream>
 
 const char* RECORD_FILE = "./modules/dns_records.txt";
+std::vector<DNSRecord> RECORDS;
+IPv4Addr AROOT = IPv4Addr("198.41.0.4"); // this is a.root-servers.net
 
 
 // Function to set a timeout on a socket
@@ -28,17 +30,59 @@ void setSocketTimeout(int socket, int timeoutSeconds)
 	}
 }
 
-std::vector<DNSRecord> records_from_file(char* file)
+std::vector<DNSRecord> records_from_file(const char* file)
 {
     std::ifstream fin(file);
     if (!fin.is_open())
     {
-        throw std::runtime_error("Could not open records file!")
+        throw std::runtime_error("Could not open records file!");
     }
 
+    std::vector<DNSRecord> result; 
     
+    char reader[500];
+
+    while (fin >> reader) { // domain
+        DNSRecord record;
+        record.domain = reader;
+        fin >> reader; // class
+        fin >> reader; // qtype
+        record.qtype = QueryTypeFunc::from_string(reader);
+        fin.getline(reader, sizeof(reader)-1); // data
+        record.value = reader;
+        // trim white spces
+        record.value.erase(record.value.begin(), std::find_if(record.value.begin(), record.value.end(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }));
+
+        record.ttl = 300;
+        result.push_back(record);
+    }
+
+    // for (auto res : result) {
+    //     std::cout << res.to_string() << std::endl;
+    // }
 
     fin.close();
+    return result;
+}
+
+std::vector<DNSRecord> search_in_records(std::string qname, QueryType qtype, std::vector<DNSRecord> &records)
+{
+    std::vector<DNSRecord> result;
+
+    for (auto &rec : records)
+    {
+        if (strcmp(rec.domain.c_str(), qname.c_str()) == 0) {
+            if (rec.qtype == QueryType::NS || rec.qtype == qtype)
+                result.push_back(rec);
+        }
+        else if (qname.ends_with(rec.domain))
+            if (rec.qtype == QueryType::NS)
+                result.push_back(rec);
+    }
+
+    return result;
 }
 
 // Performs a lookup on a local file to see if there are any names assigned
@@ -46,14 +90,36 @@ DnsPacket local_lookup(std::string qname, QueryType qtype)
 {
     DnsPacket result;
     try{
-        std::vector<DNSRecord> records = records_from_file(RECORD_FILE);
-        std::vector<DNSRecord> result = search_in_records(qname, qtype, records);
+        std::vector<DNSRecord> records = search_in_records(qname, qtype, RECORDS);
+
+        // std::cout << "RECORDS: "<< std::endl;
+        // for (auto x : records){
+        //     std::cout << x.to_string() << std::endl;
+        // }
+
+        if (records.empty())
+            result.header.rescode = ResultCode::NXDOMAIN;
+        else {
+            for (auto &rec : records) 
+            {
+                if (qtype == rec.qtype)
+                {
+                    result.answers.push_back(rec);
+                    result.header.answers ++;
+                }
+                else
+                {
+                    result.header.authoritative_entries ++;
+                    result.authorities.push_back(rec); 
+                }
+            }
+        }
     }
     catch (std::runtime_error e){
-        std::cout << e.what << std::endl;
+        std::cout << e.what() << std::endl;
         result.header.rescode = ResultCode::NXDOMAIN;
-        return result;
     }
+    return result;
 }
 
 // Sends a DNS question to the specified server 
@@ -112,11 +178,10 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
 // Tries to resolve a domain name through recursive lookups
 DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 {
-    IPv4Addr ns = IPv4Addr("198.41.0.4"); // this is a.root-servers.net
+    IPv4Addr ns = IPv4Addr("127.0.0.1");
 
     while (true)
     {
-        std::cout << "Attepmpting lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with NS " << ns.to_string() << std::endl;
 
         IPv4Addr ns_copy = ns;
 
@@ -128,19 +193,28 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
         DnsPacket response;
         try {
-            // first perform a local lookup to see if there is a local domain assigned
-            response = local_lookup(qname, qtype);
-
-            if (response.header.rescode == ResultCode::NXDOMAIN) // no domain found locally
-            {
+            
+            if (ns.to_string() == "127.0.0.1") {
+                // first perform a local lookup to see if there is a local domain assigne d
+                std::cout << "Attepmpting LOCAL lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << std::endl;
+                response = local_lookup(qname, qtype);
+            }
+            else {
+                std::cout << "Attepmpting ONLINE lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with NS " << ns.to_string() << std::endl;
                 response = lookup(qname, qtype, server_addr);
             }
+            
         }
         catch (std::runtime_error e)
         {
             throw e;
         }
         
+        if (response.header.rescode == ResultCode::NXDOMAIN && ns.to_string() == "127.0.0.1") // no domain found locally
+        {
+            ns = AROOT;
+            continue;
+        }
         // success
         if (!response.answers.empty() && response.header.rescode == ResultCode::NOERROR)
             return response;
@@ -269,6 +343,9 @@ int main(int argc, char** argv)
         std::cout << "Usage: " << argv[0] << " port" << std::endl;
         return 0;
     }
+
+    // getting the local records
+    RECORDS = records_from_file(RECORD_FILE);
 
     // Start listening
     int socket = PassiveSockUDP(argv[1]);
