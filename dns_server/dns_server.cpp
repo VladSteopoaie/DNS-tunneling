@@ -5,54 +5,106 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <fstream>
 
+const char* RECORD_FILE = "./modules/dns_records.txt";
+
+
+// Function to set a timeout on a socket
+void setSocketTimeout(int socket, int timeoutSeconds)
+{
+	struct timeval timeout;
+	timeout.tv_sec = timeoutSeconds;
+	timeout.tv_usec = 0;
+
+	if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+		std::cerr << "Error setting receive timeout: " << strerror(errno) << std::endl;
+	}
+
+	if (setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+		std::cerr << "Error setting send timeout: " << strerror(errno) << std::endl;
+	}
+}
+
+std::vector<DNSRecord> records_from_file(char* file)
+{
+    std::ifstream fin(file);
+    if (!fin.is_open())
+    {
+        throw std::runtime_error("Could not open records file!")
+    }
+
+    
+
+    fin.close();
+}
+
+// Performs a lookup on a local file to see if there are any names assigned
+DnsPacket local_lookup(std::string qname, QueryType qtype)
+{
+    DnsPacket result;
+    try{
+        std::vector<DNSRecord> records = records_from_file(RECORD_FILE);
+        std::vector<DNSRecord> result = search_in_records(qname, qtype, records);
+    }
+    catch (std::runtime_error e){
+        std::cout << e.what << std::endl;
+        result.header.rescode = ResultCode::NXDOMAIN;
+        return result;
+    }
+}
 
 // Sends a DNS question to the specified server 
 DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& server_addr)
 {
     int socket = PassiveSockUDP("43210"); // picking a random port to send the request
+    setSocketTimeout(socket, 5);
     DnsPacket packet = DnsPacket();
     
     try{
+        // crafting the header
         packet.header.id = 6666; // random id
         packet.header.questions = 1;
         packet.header.recursion_desired = true;
+
+        // crafting the body
         packet.questions.push_back(DnsQuestion(qname, qtype));
 
         BytePacketBuffer req_buffer = BytePacketBuffer();
-
+ 
         packet.write(req_buffer);
 
         char req_bytes[req_buffer.getPos()];
         std::copy(req_buffer.buf.begin(), req_buffer.buf.end(), req_bytes);
 
-        
+        // sending the request
         ssize_t bytes_sent = sendto(socket, req_bytes, req_buffer.getPos(), 0, (struct sockaddr*) &server_addr, sizeof(server_addr));
         if (bytes_sent <= 0)
         {
-            close(socket)
+            close(socket);
             throw std::runtime_error("Some error occurred when sending data!\n");
         }
 
-
-        char res_bytes[         BytePacketBuffer::packetSize];
+        // receiving response
+        char res_bytes[BytePacketBuffer::packetSize];
         ssize_t bytes_read = recv(socket, res_bytes, BytePacketBuffer::packetSize, 0); 
-
         if (bytes_read <= 0)
         {
-            close(socket)
+            close(socket);
             throw std::runtime_error("Some error occurred when receiving data!\n");
         }
 
         BytePacketBuffer res_buffer = BytePacketBuffer(res_bytes, bytes_read);
         
-        close(socket)
+        close(socket);
         return DnsPacket::from_buffer(res_buffer);
 
     }
     catch (std::runtime_error e)
     {
-        close(socket)
+        close(socket);
         throw e;
     }
 }
@@ -64,7 +116,7 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
     while (true)
     {
-        std::cout << "Attepmpting lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with ns " << ns.to_string() << std::endl;
+        std::cout << "Attepmpting lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with NS " << ns.to_string() << std::endl;
 
         IPv4Addr ns_copy = ns;
 
@@ -76,14 +128,20 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
         DnsPacket response;
         try {
-            response = lookup(qname, qtype, server_addr);
+            // first perform a local lookup to see if there is a local domain assigned
+            response = local_lookup(qname, qtype);
+
+            if (response.header.rescode == ResultCode::NXDOMAIN) // no domain found locally
+            {
+                response = lookup(qname, qtype, server_addr);
+            }
         }
         catch (std::runtime_error e)
         {
             throw e;
         }
         
-        // error occured
+        // success
         if (!response.answers.empty() && response.header.rescode == ResultCode::NOERROR)
             return response;
 
@@ -146,15 +204,18 @@ void handle_query(int socket)
 
             DnsPacket result;
             try{
+                // perform a recursive lookup
                 result = recursive_lookup(question.name, question.qtype);
+                packet.header.rescode = result.header.rescode;
+
             }
             catch(std::runtime_error e)
             {
+                std::cout << e.what() << std::endl;
                 packet.header.rescode = ResultCode::SERVFAIL;
             }
 
             packet.questions.push_back(question);
-            packet.header.rescode = result.header.rescode;
 
             std::cout << "Answer:\n";
             for (size_t i = 0; i < result.answers.size(); i ++)

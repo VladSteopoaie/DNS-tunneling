@@ -1,0 +1,2 @@
+tunnel.mydomain.top IN NS ns.mydomain.top
+ns.mydomain.top IN A 10.8.8.16
