@@ -4,7 +4,7 @@ import time
 import base64
 from scapy.all import *
 
-DOMAIN = "tunnel.proiect-retele.live."
+DOMAIN = "tunnel.mydomain.top."
 DOMAIN_LEN = 3
 DNS_PORT = 53
 

@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <fstream>
 
-#define DOMAIN "retele.littlecloud.engineer."
+#define DOMAIN "tunnel.mydomain.top."
 #define DOMAIN_LEN 3
 
 std::vector<std::string> split(const std::string &s, char delimiter)
