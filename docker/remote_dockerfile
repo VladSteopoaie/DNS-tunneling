@@ -1,7 +1,14 @@
 FROM ubuntu:latest
 
-RUN apt update && apt install -y gcc g++ cmake python3 python3-pip python3.12-venv iptables iproute2 dnsutils iputils-ping nano
+RUN apt update && apt install -y gcc g++ cmake python3 python3-pip python3.12-venv iptables iproute2 dnsutils iputils-ping nano dos2unix
+
+WORKDIR /root
+RUN python3 -m venv .venv
+
+RUN .venv/bin/pip3 install --upgrade pip
+RUN .venv/bin/pip3 install scapy loguru
 
 WORKDIR /
 RUN mkdir -p /scripts
 COPY remote /scripts/
+RUN dos2unix /scripts/setup.sh

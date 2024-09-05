@@ -8,7 +8,7 @@
 #include <fstream>
 
 const char* RECORD_FILE = "./modules/dns_records.txt";
-std::vector<DNSRecord> RECORDS;
+std::vector<DnsRecord> RECORDS;
 IPv4Addr AROOT = IPv4Addr("198.41.0.4"); // this is a.root-servers.net
 
 
@@ -30,7 +30,7 @@ void setSocketTimeout(int socket, int timeoutSeconds)
 	}
 }
 
-std::vector<DNSRecord> records_from_file(const char* file)
+std::vector<DnsRecord> records_from_file(const char* file)
 {
     std::ifstream fin(file);
     if (!fin.is_open())
@@ -38,12 +38,12 @@ std::vector<DNSRecord> records_from_file(const char* file)
         throw std::runtime_error("Could not open records file!");
     }
 
-    std::vector<DNSRecord> result; 
+    std::vector<DnsRecord> result; 
     
     char reader[500];
 
     while (fin >> reader) { // domain
-        DNSRecord record;
+        DnsRecord record;
         record.domain = reader;
         fin >> reader; // class
         fin >> reader; // qtype
@@ -67,9 +67,9 @@ std::vector<DNSRecord> records_from_file(const char* file)
     return result;
 }
 
-std::vector<DNSRecord> search_in_records(std::string qname, QueryType qtype, std::vector<DNSRecord> &records)
+std::vector<DnsRecord> search_in_records(std::string qname, QueryType qtype, std::vector<DnsRecord> &records)
 {
-    std::vector<DNSRecord> result;
+    std::vector<DnsRecord> result;
 
     for (auto &rec : records)
     {
@@ -90,7 +90,7 @@ DnsPacket local_lookup(std::string qname, QueryType qtype)
 {
     DnsPacket result;
     try{
-        std::vector<DNSRecord> records = search_in_records(qname, qtype, RECORDS);
+        std::vector<DnsRecord> records = search_in_records(qname, qtype, RECORDS);
 
         // std::cout << "RECORDS: "<< std::endl;
         // for (auto x : records){
@@ -154,8 +154,8 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
         }
 
         // receiving response
-        char res_bytes[BytePacketBuffer::packetSize];
-        ssize_t bytes_read = recv(socket, res_bytes, BytePacketBuffer::packetSize, 0); 
+        char res_bytes[BytePacketBuffer::packet_size];
+        ssize_t bytes_read = recv(socket, res_bytes, BytePacketBuffer::packet_size, 0); 
         if (bytes_read <= 0)
         {
             close(socket);
@@ -250,10 +250,10 @@ void handle_query(int socket)
     // Variable definition
     struct sockaddr_storage source_addr;
     socklen_t source_addrlen = sizeof(source_addr);
-    char req_bytes[BytePacketBuffer::packetSize];
+    char req_bytes[BytePacketBuffer::packet_size];
 
     // Waiting for data
-    ssize_t bytes_read = recvfrom(socket, req_bytes, BytePacketBuffer::packetSize, 0, (struct sockaddr*) &source_addr, &source_addrlen);
+    ssize_t bytes_read = recvfrom(socket, req_bytes, BytePacketBuffer::packet_size, 0, (struct sockaddr*) &source_addr, &source_addrlen);
     if (bytes_read <= 0)
     {
         throw std::runtime_error("An error occured when receiving data! (handle_query)");

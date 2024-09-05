@@ -113,9 +113,9 @@ int SendData(int socket, BytePacketBuffer res_buffer, struct sockaddr *source_ad
 
 DnsPacket ReceiveData(int socket, struct sockaddr *source_addr, socklen_t &source_addrlen)
 {
-	char req_bytes[BytePacketBuffer::packetSize];
+	char req_bytes[BytePacketBuffer::packet_size];
 	ssize_t bytes_read =
-		recvfrom(socket, req_bytes, BytePacketBuffer::packetSize, 0, source_addr, &source_addrlen);
+		recvfrom(socket, req_bytes, BytePacketBuffer::packet_size, 0, source_addr, &source_addrlen);
 
 	if (bytes_read <= 0)
 	{
@@ -178,7 +178,7 @@ int handle_connection(int socket)
 			std::string ack = "0." + std::to_string(req_info.first) + ".down." + DOMAIN;
 
 			packet.questions.push_back(question);
-			packet.answers.push_back(DNSRecord(question.name, QueryType::CNAME, ack, 300));
+			packet.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
 			packet.header.answers = 1;
 			packet.write(res_buffer);
 			int r = SendData(socket, res_buffer, (struct sockaddr *)&source_addr, source_addrlen);
@@ -199,14 +199,14 @@ int handle_connection(int socket)
 		size_t file_size = (size_t)file.tellg();
 		file.seekg(0, std::ios::beg);
 
-		int num_packets = file_size / DNSRecord::txt_size + 1;
+		int num_packets = file_size / DnsRecord::txt_size + 1;
 
 		DnsPacket last_sent = packet; // by knowing the last packet we sent we can make the server more robust
 									  // if the connection is interupted we can resent the packet untill it's received
 		// sending the confirmation + number of packets to expect
 		std::string ack = std::to_string(num_packets) + "." + std::to_string(req_info.first) + ".down." + DOMAIN;
 		last_sent.questions.push_back(question);
-		last_sent.answers.push_back(DNSRecord(question.name, QueryType::CNAME, ack, 300));
+		last_sent.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
 		last_sent.header.answers = 1;
 		last_sent.write(res_buffer);
 		int r = SendData(socket, res_buffer, (struct sockaddr *)&source_addr, source_addrlen);
@@ -296,8 +296,8 @@ int handle_connection(int socket)
 				file.seekg(previous_batch);
 
 			previous_batch = file.tellg();
-			std::string buffer(DNSRecord::txt_size, '\0');
-			file.read(&buffer[0], DNSRecord::txt_size);
+			std::string buffer(DnsRecord::txt_size, '\0');
+			file.read(&buffer[0], DnsRecord::txt_size);
 
 			std::size_t bytesRead = file.gcount();
 			std::cout << "Read " << bytesRead << " bytes." << std::endl;
@@ -305,7 +305,7 @@ int handle_connection(int socket)
 
 			last_sent = packet;
 			last_sent.questions.push_back(q);
-			last_sent.answers.push_back(DNSRecord(q.name, QueryType::TXT, buffer, 300));
+			last_sent.answers.push_back(DnsRecord(q.name, QueryType::TXT, buffer, 300));
 			last_sent.header.answers = 1;
 			last_sent.write(res_buffer);
 			r = SendData(socket, res_buffer, (struct sockaddr *)&source_addr, source_addrlen);

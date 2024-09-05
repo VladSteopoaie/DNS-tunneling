@@ -169,7 +169,8 @@ def handle_connection(sock):
 
 def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('10.0.0.101', DNS_PORT))
+    sock.bind(('0.0.0.0', DNS_PORT))
+    print(f"Listening on 0.0.0.0:{DNS_PORT} ...")
 
     while True:
         r = handle_connection(sock)

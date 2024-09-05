@@ -63,7 +63,7 @@ services:
     tty: true
 
     networks:
-      local_net:
+      remote_net:
         ipv4_address: "10.8.8.16"
     
     depends_on:

@@ -132,11 +132,13 @@ IPv4Addr::IPv4Addr(std::string addr)
 {
     char* ip = (char*) addr.c_str();
 
+    // breaking the address into tokens to get each byte
     char* token = strtok(ip, ".");
     int i = 0;
 
     while (token != NULL)
     {
+        // if the string is empty the returned address will be 0.0.0.0
         if (strcmp(token, "") == 0)
         {
             for (int j = 0; j < 4; j ++)
@@ -144,6 +146,7 @@ IPv4Addr::IPv4Addr(std::string addr)
             break;
         }
 
+        // simple conversion for each byte
         bytes[i] = (uint8_t) atoi(token);
 
         token = strtok(NULL, ".");
@@ -177,6 +180,7 @@ IPv6Addr::IPv6Addr(std::string str)
 {
     std::stringstream ss(str);
     ss << std::hex << std::setfill('0');
+
     uint16_t byte;
     int i = 0;
     while (ss >> std::setw(4) >> byte) {
@@ -195,6 +199,7 @@ std::string IPv6Addr::to_string() const
 {
     std::stringstream ss;
     ss << std::hex << std::setfill('0');
+
     for (int i = 0; i < 8; ++i) {
         ss << std::setw(4) << static_cast<unsigned>(bytes[i]);
         if (i < 7) {
@@ -204,11 +209,12 @@ std::string IPv6Addr::to_string() const
     return ss.str();
 }
 
+
 /*######################################*/
 /*---------[ BytePacketBuffer ]---------*/
 /*######################################*/
 
-size_t BytePacketBuffer::packetSize = 1024;
+size_t BytePacketBuffer::packet_size = 512;
 
 BytePacketBuffer::BytePacketBuffer()
 {
@@ -223,6 +229,12 @@ BytePacketBuffer::BytePacketBuffer(char* new_buf, size_t len)
 
     for (size_t i = 0; i < len; i ++)
     {
+        if (i >= sizeof(new_buf))
+        {
+            std::cout << "Warning: provided len: " << len << ", but buffer's size is: " << sizeof(new_buf) << std::endl;
+            break;
+        }
+
         buf.push_back(new_buf[i]);
     }
 }
@@ -233,7 +245,7 @@ size_t BytePacketBuffer::getPos()
     return pos;
 }
 
-// move the position over a specific number of steps
+// move the position over a specific number of bytes
 void BytePacketBuffer::step(size_t steps)
 {
     pos += steps;
@@ -245,35 +257,35 @@ void BytePacketBuffer::seek(size_t pos)
     this->pos = pos;
 }
 
-// read one byte from the buffer's position and change the position
-uint8_t BytePacketBuffer::read_u8()
-{
-    if (pos >= packetSize)
-        throw std::runtime_error("End of buffer 1!");
-    
-    uint8_t r = buf[pos];
-    pos += 1;
-    return r;
-}
-
 // get the current byte from buffer's position without changing the position
 uint8_t BytePacketBuffer::get(size_t pos)
 {
-    if (pos >= packetSize)
+    if (pos >= packet_size)
         throw std::runtime_error("End of buffer 2!");
     return buf[pos];
 }
 
-// get a range of bytes from buf
+// get a range of bytes from buf without changing the position
 uint8_t* BytePacketBuffer::get_range(size_t start, size_t len)
 {
-    if (start + len >= packetSize)
+    if (this->pos + start + len >= packet_size)
         throw std::runtime_error("End of buffer 3!");
 
     uint8_t* res = new uint8_t[len + 1];
     std::copy(buf.begin() + start, buf.begin() + start + len, res);
     res[len] = 0;
     return res;
+}
+
+// read one byte from the buffer's position and change the position
+uint8_t BytePacketBuffer::read_u8()
+{
+    if (pos >= packet_size)
+        throw std::runtime_error("End of buffer 1!");
+    
+    uint8_t r = buf[pos];
+    pos += 1;
+    return r;
 }
 
 // reads 2 bytes from buf
@@ -304,64 +316,121 @@ uint32_t BytePacketBuffer::read_u32()
     return rez;
 }
 
+// reads a domain name from the buffer
+
+// The tricky part: Reading domain names, taking labels into consideration.
+// Will take something like [3]www[6]google[3]com[0] and append
+// www.google.com to outstr.
 void BytePacketBuffer::read_qname(char* outstr)
 {
-    outstr[0] = '\0';
-    size_t lpos = this->pos;
+    // Since we might encounter jumps, we'll keep track of our position
+    // locally as opposed to using the position within the struct. This
+    // allows us to move the shared position to a point past our current
+    // qname, while keeping track of our progress on the current qname
+    // using this variable.
+    size_t local_pos = this->pos;
+
+    // tracking whether a jump was performed
     bool jumped = false;
     int max_jumps = 5;
     int jumps_performed = 0;
 
+    // Our delimiter which we append for each label. Since we don't want a
+    // dot at the beginning of the domain name we'll leave it empty for now
+    // and set it to "." at the end of the first iteration.
     std::string delim = "";
-
+    
+    outstr[0] = '\0'; // clearing the result string
+    
     while (true)
     {
         if (jumps_performed > max_jumps) 
             throw std::runtime_error("Limit of jumps exceeded!");
 
-        uint8_t len = get(lpos);
+        // At this point, we're always at the beginning of a label. Recall
+        // that labels start with a length byte.
+        uint8_t len = get(local_pos);
 
+        // If len has the two most significant bit are set, it represents a
+        // jump to some other offset in the packet:
         if ((len & 0xC0) == 0xC0)
         {
+            // Update the buffer position to a point past the current
+            // label. We don't need to touch it any further.
             if (!jumped) 
-                seek(lpos + 2);
+                seek(local_pos + 2);
         
+            // Read another byte, calculate offset and perform the jump by
+            // updating our local position variable
             // the offset for the jump has 2 bytes so I converted it to uint16_t
-            uint16_t byte2 = (uint16_t) get(lpos + 1);
+            uint16_t byte2 = (uint16_t) get(local_pos + 1);
             uint16_t offset = ((((uint16_t) len) ^ 0xC0) << 8) | byte2;
-            lpos = (size_t) offset;
+            local_pos = (size_t) offset;
 
             jumped = true;
             jumps_performed ++;
             continue;
         }
+        // The base scenario, where we're reading a single label and
+        // appending it to the output:
         else
         {
-            lpos ++;
+            local_pos ++;
 
+            // Domain names are terminated by an empty label of length 0,
+            // so if the length is zero we're done.
             if (len == 0)
                 break;
 
+            // Append the delimiter to our output buffer first.
             strcat(outstr, delim.c_str());
 
-            char* str_buffer = (char*) get_range(lpos, (size_t) len);
-            strcat(outstr, str_buffer);
+            // Extract the actual ASCII bytes for this label and append them
+            // to the output buffer.
+            char* temp_buffer = (char*) get_range(local_pos, (size_t) len);
+            strcat(outstr, temp_buffer);
             delim = ".";
 
-            lpos += (size_t) len;
-            delete[] str_buffer;
+            local_pos += (size_t) len;
+            delete[] temp_buffer;
         }
     }
 
     if (!jumped) {
-        seek(lpos);
+        seek(local_pos);
     }
 
 }
 
+// writes a domain name into the buffer
+void BytePacketBuffer::write_qname(char* qname)
+{
+    // spliting the domain by "."
+    char* token = strtok(qname, ".");
+
+    while(token != NULL)
+    {
+        size_t len = strlen(token);
+        if (len > 0x3f)
+            throw std::runtime_error("Single label exceeds 63 characters of length!");
+        
+        // first we write the length of the token
+        write_u8((uint8_t) len);
+
+        // then the token is written
+        for (int i = 0; token[i]; i ++)
+            write_u8((uint8_t) token[i]);
+
+        token = strtok(NULL, ".");
+    }
+        
+    write_u8(0);
+}
+
+// writing 1 byte into the buffer
 void BytePacketBuffer::write_u8(uint8_t val)
 {
-    if (pos >= packetSize)
+    if (pos >= packet_size)
         throw std::runtime_error("End of buffer! (write_u8)");
 
     if (pos < buf.size())
@@ -371,6 +440,7 @@ void BytePacketBuffer::write_u8(uint8_t val)
     pos += 1;
 }
 
+// writing 2 bytes into the buffer
 void BytePacketBuffer::write_u16(uint16_t val)
 {
     try{
@@ -383,6 +453,7 @@ void BytePacketBuffer::write_u16(uint16_t val)
     }
 }
 
+// writing 4 bytes into the buffer
 void BytePacketBuffer::write_u32(uint32_t val)
 {
     try{
@@ -397,30 +468,13 @@ void BytePacketBuffer::write_u32(uint32_t val)
     }
 }
 
-void BytePacketBuffer::write_qname(char* qname)
-{
-    char* p = strtok(qname, ".");
-    while(p != NULL)
-    {
-        size_t len = strlen(p);
-        if (len > 0x3f)
-            throw std::runtime_error("Single label exceeds 63 characters of length!");
-
-        write_u8((uint8_t) len);
-        for (int i = 0; p[i]; i ++)
-            write_u8((uint8_t) p[i]);
-
-        p = strtok(NULL, ".");
-    }
-        
-    write_u8(0);
-}
-
+// set a byte to have the value of val without changing the possition
 void BytePacketBuffer::set_u8(size_t pos, uint8_t val)
 {
     buf[pos] = val;
 }
 
+// set 2 bytes to have the value of val without changing the possition
 void BytePacketBuffer::set_u16(size_t pos, uint16_t val)
 {
     set_u8(pos, (uint8_t) (val >> 8));
@@ -436,45 +490,97 @@ DnsHeader::DnsHeader()
 {
     id = 0;
 
+    questions = 0;
+    answers = 0;
+    authoritative_entries = 0;
+    resource_entries = 0;
+
+    opcode = 0;
+    rescode = ResultCode::NOERROR;
+    
     recursion_desired = false;
     truncated_message = false;
     authoritative_answer = false;
-    opcode = 0;
     response = false;
 
-    rescode = ResultCode::NOERROR;
     checking_disabled = false;
     authed_data = false;
     z = false;
     recursion_available = false;
 
-    questions = 0;
-    answers = 0;
-    authoritative_entries = 0;
-    resource_entries = 0;
 }
+
+/*
+ * Structure of a DNS Header:
+ * 
+ * A DNS header is 12 bytes long and contains several fields used to identify and manage DNS queries and responses.
+ * 
+ * 1. ID (Packet Identifier) - 16 bits:
+ *    A unique identifier assigned to each query packet. The response packet must have the same ID to match the query.
+ *    This helps differentiate responses due to the stateless nature of UDP.
+ * 
+ * 2. QR (Query/Response Flag) - 1 bit:
+ *    0 for queries, 1 for responses.
+ * 
+ * 3. OPCODE (Operation Code) - 4 bits:
+ *    Typically 0 (standard query). Other values exist but are rarely used. See RFC 1035 for details.
+ * 
+ * 4. AA (Authoritative Answer Flag) - 1 bit:
+ *    Set to 1 if the responding server is authoritative for the domain in the query.
+ * 
+ * 5. TC (Truncated Message Flag) - 1 bit:
+ *    Set to 1 if the message is too long to fit in a single UDP packet (greater than 512 bytes). This indicates that the client
+ *    should retry the request over TCP, where this limitation does not apply.
+ * 
+ * 6. RD (Recursion Desired Flag) - 1 bit:
+ *    Set by the client if recursive query resolution is desired. If the server does not know the answer, it will query other servers.
+ * 
+ * 7. RA (Recursion Available Flag) - 1 bit:
+ *    Set by the server in its response to indicate that it supports recursive query resolution.
+ * 
+ * 8. Z (Reserved) - 3 bits:
+ *    Reserved for future use, typically set to 0 in standard queries but may be used for DNSSEC.
+ * 
+ * 9. RCODE (Response Code) - 4 bits:
+ *    Set in responses to indicate success or failure of the query. Common values include:
+ *      - 0: No error (success).
+ *      - 1: Format error (query could not be parsed).
+ *      - 2: Server failure (internal error).
+ *      - 3: Name error (domain does not exist).
+ * 
+ * 10. QDCOUNT (Question Count) - 16 bits:
+ *     The number of entries in the Question section. Typically 1 for a standard query.
+ * 
+ * 11. ANCOUNT (Answer Count) - 16 bits:
+ *     The number of entries in the Answer section (the response section for query results).
+ * 
+ * 12. NSCOUNT (Authority Count) - 16 bits:
+ *     The number of entries in the Authority section, which lists authoritative name servers for the queried domain.
+ * 
+ * 13. ARCOUNT (Additional Count) - 16 bits:
+ *     The number of entries in the Additional section, which contains additional information, like extra resource records.
+ */
+
 
 void DnsHeader::read(BytePacketBuffer &buffer)
 {
     try {
         id = buffer.read_u16();
-        //std::cout << id << std::endl;
         uint16_t flags = buffer.read_u16();
-        //std::cout << flags << std::endl;
-        uint8_t a = (uint8_t) (flags >> 8);
-        uint8_t b = (uint8_t) (flags & 0xFF);
+        uint8_t first_byte = (uint8_t) (flags >> 8);
+        uint8_t second_byte = (uint8_t) (flags & 0xFF);
 
-        recursion_desired = (a & (1 << 0)) > 0;
-        truncated_message = (a & (1 << 1)) > 0;
-        authoritative_answer = (a & (1 << 2)) > 0;
-        opcode = (a >> 3) & 0x0F;
-        response = (a & (a << 7)) > 0;
+        recursion_desired = (first_byte & (1 << 0)) > 0;
+        truncated_message = (first_byte & (1 << 1)) > 0;
+        authoritative_answer = (first_byte & (1 << 2)) > 0;
+        opcode = (first_byte >> 3) & 0x0F;
+        response = (first_byte & (first_byte << 7)) > 0;
 
-        rescode = ResultCodeFunc::from_num(b & 0x0F);
-        checking_disabled = (b & (1 << 4)) > 0;
-        authed_data = (b & (1 << 5)) > 0;
-        z = (b & (1 << 6)) > 0;
-        recursion_available = (b & (1 << 7)) > 0;
+        rescode = ResultCodeFunc::from_num(second_byte & 0x0F);
+        checking_disabled = (second_byte & (1 << 4)) > 0;
+        authed_data = (second_byte & (1 << 5)) > 0;
+        z = (second_byte & (1 << 6)) > 0;
+        recursion_available = (second_byte & (1 << 7)) > 0;
 
         questions = buffer.read_u16();
         answers = buffer.read_u16();
@@ -543,6 +649,27 @@ std::string DnsHeader::to_string() const {
 /*---------[ DnsQuestion ]---------*/
 /*#################################*/
 
+/*
+ * Structure of the DNS Question Section:
+ *
+ * Each DNS query contains one or more entries in the "Question" section, which specifies the name, type, and class of the query.
+ *
+ * 1. Name (Label Sequence):
+ *    The domain name is encoded as a sequence of labels. Each label consists of a length byte followed by that number of bytes of text.
+ *    The domain name is terminated by a null byte (0x00).
+ * 
+ * 2. Type (2-byte Integer):
+ *    Specifies the record type being queried. Common values include:
+ *      - 1: A (IPv4 address)
+ *      - 2: NS (Name Server)
+ *      - 5: CNAME (Canonical Name)
+ *      - 15: MX (Mail Exchange)
+ *      - 28: AAAA (IPv6 address)
+ * 
+ * 3. Class (2-byte Integer):
+ *    Specifies the class of the query, which is almost always set to 1 (IN for Internet).
+ */
+
 
 DnsQuestion::DnsQuestion(std::string name, QueryType qtype)
 {
@@ -556,14 +683,6 @@ DnsQuestion::DnsQuestion()
     this->qtype = QueryType::UNKNOWN;
 }
 
-std::string DnsQuestion::to_string()
-{
-    std::string s = "DnsQuestion { ";
-    s += "name: " + name + ", ";
-    s += "qtype: " + QueryTypeFunc::to_string(qtype) + ' ';
-    s += "}";
-    return s;
-}
 
 void DnsQuestion::read(BytePacketBuffer &buffer)
 {
@@ -595,22 +714,51 @@ void DnsQuestion::write(BytePacketBuffer &buffer)
     }
 }
 
+std::string DnsQuestion::to_string()
+{
+    std::string s = "DnsQuestion { ";
+    s += "name: " + name + ", ";
+    s += "qtype: " + QueryTypeFunc::to_string(qtype) + ' ';
+    s += "}";
+    return s;
+}
 
 /*###############################*/
 /*---------[ DnsRecord ]---------*/
 /*###############################*/
 
-const size_t DNSRecord::txt_size = 400;
+/*
+ * Structure of a DNS Resource Record (RR):
+ *
+ * Each Resource Record (RR) contains the following fields:
+ *
+ * 1. Name (Label Sequence):
+ *    The domain name, encoded as a sequence of labels. Each label consists of a length byte followed by that number of bytes of text.
+ *    The domain name is terminated by a null byte (0x00).
+ *
+ * 2. Type (2-byte Integer):
+ *    Specifies the type of the resource record. Common types include:
+ *      - 1: A (IPv4 address)
+ *      - 2: NS (Name Server)
+ *      - 5: CNAME (Canonical Name)
+ *      - 15: MX (Mail Exchange)
+ *      - 28: AAAA (IPv6 address)
+ *
+ * 3. Class (2-byte Integer):
+ *    Specifies the class of the record, typically set to 1 (IN for Internet).
+ *
+ * 4. TTL (4-byte Integer):
+ *    Time-To-Live specifies how long the record can be cached by a resolver before it should be queried again. 
+ *    It's a value in seconds.
+ *
+ * 5. Length (Len) (2-byte Integer):
+ *    Indicates the length (in bytes) of the resource data that follows. This length is specific to the record type.
+ */
 
-DNSRecord::DNSRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) 
-{
-    this->domain = domain;
-    this->qtype = qtype;
-    this->value = value;
-    this->ttl = ttl;
-}
 
-DNSRecord::DNSRecord()
+const size_t DnsRecrod::txt_size = 400;
+
+DnsRecrod::DnsRecrod()
 {
     this->domain = "";
     this->qtype = QueryType::UNKNOWN;
@@ -618,65 +766,169 @@ DNSRecord::DNSRecord()
     this->ttl = 0;
 }
 
-DNSRecord DNSRecord::read(BytePacketBuffer &buffer)
+DnsRecrod::DnsRecrod(std::string domain, QueryType qtype, std::string value, uint32_t ttl) 
+{
+    this->domain = domain;
+    this->qtype = qtype;
+    this->value = value;
+    this->ttl = ttl;
+}
+
+DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
 {
     char* domain = new char[1024];
 
     try {
         buffer.read_qname(domain);
         QueryType qtype = QueryTypeFunc::from_num(buffer.read_u16());
-        buffer.read_u16();
+        buffer.read_u16(); // class
         uint32_t ttl = buffer.read_u32();
         size_t data_len = (size_t) buffer.read_u16();
     
-        DNSRecord record;
+        DnsRecrod record;
 
         switch(qtype)
         {
             case QueryType::A:
             {
+                /*
+                * Structure of a DNS A (Address) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above, with the length field set to 4.
+                *
+                * 2. IP (4-byte Integer):
+                *    An IP address encoded as a four-byte integer.
+                */
+
                 uint32_t raw_addr = buffer.read_u32();
                 IPv4Addr addr = IPv4Addr(raw_addr);
-                record = DNSRecord(domain, qtype, addr.to_string(), ttl);
+                record = DnsRecrod(domain, qtype, addr.to_string(), ttl);
                 break;
             }   
             case QueryType::NS:
             {
+                /*
+                * Structure of a DNS NS (Name Server) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above.
+                *
+                * 2. Name Server (Label Sequence):
+                *    The domain name of the authoritative name server, encoded as a sequence of labels.
+                */
+
                 char ns[1024];
                 buffer.read_qname(ns);
-                record = DNSRecord(domain, qtype, ns, ttl);
+                record = DnsRecrod(domain, qtype, ns, ttl);
                 break;
             }
             case QueryType::CNAME:
             {
+                /*
+                * Structure of a DNS CNAME (Canonical Name) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above.
+                *
+                * 2. Canonical Name (Label Sequence):
+                *    The canonical domain name that this alias points to, encoded as a sequence of labels.
+                */
+
                 char cname[1024];
                 buffer.read_qname(cname);
-                record = DNSRecord(domain, qtype, cname, ttl);
+                record = DnsRecrod(domain, qtype, cname, ttl);
                 break;
             }
             case QueryType::MX:
             {
+                /*
+                * Structure of a DNS MX (Mail Exchange) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above.
+                *
+                * 2. Preference (2-byte Integer):
+                *    The priority of this mail exchange server, lower values are preferred.
+                *
+                * 3. Mail Server (Label Sequence):
+                *    The domain name of the mail server, encoded as a sequence of labels.
+                */
+
                 uint16_t priority = buffer.read_u16();
                 char mx[1024];
                 buffer.read_qname(mx);
-                record = DNSRecord(domain, qtype, std::to_string(priority) + ", " + mx, ttl);
+                record = DnsRecrod(domain, qtype, std::to_string(priority) + ", " + mx, ttl);
                 break;
             }
             case QueryType::AAAA:
             {
+                /*
+                * Structure of a DNS AAAA (IPv6 Address) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above, with the length field set to 16.
+                *
+                * 2. IPv6 Address (16-byte Integer):
+                *    A 128-bit (16-byte) IPv6 address encoded as 16 bytes.
+                */
+
                 std::vector<uint16_t> bytes;
                 for (int i = 0; i < 8; i ++)
                     bytes.push_back(buffer.read_u16());
 
                 IPv6Addr addr = IPv6Addr(bytes);
-                record = DNSRecord(domain, qtype, addr.to_string(), ttl);
+                record = DnsRecrod(domain, qtype, addr.to_string(), ttl);
+                break;
+            }
+            case QueryType::TXT:
+            {
+                /*
+                * Structure of a DNS TXT (Text) Record:
+                *
+                * 1. Preamble (Record Preamble):
+                *    The record preamble, as described above.
+                *
+                * 2. Text Length (1-byte Integer):
+                *    The length of the following text data.
+                *
+                * 3. Text (Variable Length String):
+                *    Arbitrary text data stored in the record.
+                */
+
+                char value[data_len - 2];
+                size_t chunk_size = 255;
+
+                for (int i = 0, value_idx = 0; i < data_len; i ++)
+                {
+                    if (i == 0) // reading chunk len
+                    {
+                        size_t chunk_len = (size_t) buffer.read_u8();
+                        if (chunk_len + 1 != data_len || chunk_len != chunk_size)
+                            throw std::runtime_error("TXT data length different from first chunk lengths!");
+                        continue;
+                    }
+                    
+                    if (i == 256) // reading chunk len
+                    {
+                        size_t chunk_len = (size_t) buffer.read_u8();
+                        if (chunk_len + chunk_size + 2 != data_len)
+                            throw std::runtime_error("TXT data length different from second chunk lengths!");
+                        continue;
+                    }
+
+                    value[value_idx] = buffer.read_u8();
+                    value_idx ++;
+                }
+
+                record = DnsRecord(domain, qtype, value, ttl);
                 break;
             }
             default:
             {
-                char *value = (char*) buffer.get_range(0, data_len);
+                char *value = (char*) buffer.get_range(buffer.getPos(), data_len);
                 buffer.step(data_len);
-                record = DNSRecord(domain, qtype, value, ttl);
+                record = DnsRecrod(domain, qtype, value, ttl);
                 delete[] value;
                 break;
             }
@@ -692,7 +944,7 @@ DNSRecord DNSRecord::read(BytePacketBuffer &buffer)
     }
 }
 
-size_t DNSRecord::write(BytePacketBuffer &buffer)
+size_t DnsRecrod::write(BytePacketBuffer &buffer)
 {
     size_t start_pos = buffer.getPos();
 
@@ -701,12 +953,14 @@ size_t DNSRecord::write(BytePacketBuffer &buffer)
         {
             case QueryType::A:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::A));
                 buffer.write_u16(1);
                 buffer.write_u32(ttl);
                 buffer.write_u16(4); // data_len
 
+                // A specific
                 IPv4Addr ip = IPv4Addr(value);
                 buffer.write_u8(ip.bytes[0]);
                 buffer.write_u8(ip.bytes[1]);
@@ -716,36 +970,45 @@ size_t DNSRecord::write(BytePacketBuffer &buffer)
             }
             case QueryType::NS:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::NS));
                 buffer.write_u16(1);
                 buffer.write_u32(ttl);
 
                 size_t pos = buffer.getPos();
-                buffer.write_u16(0);
+                buffer.write_u16(0); // the real length will be set after the domain is written
+                
+                // NS specific
                 buffer.write_qname((char*) value.c_str());
 
                 size_t size = buffer.getPos() - (pos + 2);
-                buffer.set_u16(pos, (uint16_t) size);
+                buffer.set_u16(pos, (uint16_t) size); // setting the data_len
                 break;
             }
             case QueryType::CNAME:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::CNAME));
                 buffer.write_u16(1);
                 buffer.write_u32(ttl);
 
+                // same as for NX
                 size_t pos = buffer.getPos();
                 buffer.write_u16(0);
+                
+                // CNAME specific
                 buffer.write_qname((char*) value.c_str());
 
+                // setting data_len
                 size_t size = buffer.getPos() - (pos + 2);
                 buffer.set_u16(pos, (uint16_t) size);
                 break;
             }
             case QueryType::MX:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::MX));
                 buffer.write_u16(1);
@@ -754,50 +1017,69 @@ size_t DNSRecord::write(BytePacketBuffer &buffer)
                 size_t pos = buffer.getPos();
                 buffer.write_u16(0);
 
+                // MX specific
                 char *priority = strtok((char*)value.c_str(), ", ");
                 char *host = strtok(NULL, ", ");
 
                 buffer.write_u16((uint16_t) atoi(priority));
                 buffer.write_qname(host);
 
+                // setting data_len
                 size_t size = buffer.getPos() - (pos + 2);
                 buffer.set_u16(pos, (uint16_t) size);
                 break;
             }
             case QueryType::TXT:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::TXT));
                 buffer.write_u16(1);
                 buffer.write_u32(ttl);
 
+                /*
+                * TXT values must be splitted into chunks of 255 length.
+                * The data_len is a 2 bytes space which takes the length of the whole data.
+                * After that there is a byte dennoting the lenght of the next chunk.
+                */
+
                 if (value.size() > txt_size) // if the message is smaller a padding of \n bytes will be added
-                                        // the \n bytes will be replaced with null bytes in take_4_bytes
+                                             // the \n bytes will be replaced with null bytes in take_4_bytes
                     throw std::runtime_error("TXT size exceeded!");
-                if (value.size() > 255){
-                    buffer.write_u16(value.size() + 2);
-                    buffer.write_u8(255);
+                
+                size_t chunk_size = 255;
+
+                if (value.size() > chunk_size){
+                    // if the value's size is greater that a chunk
+                    // the maximum size is written in the length byte
+                    buffer.write_u16(value.size() + 2); // size of data + 2 (length bytes for 2 chunks)
+                    buffer.write_u8(chunk_size); // chunk size
+
+                    // the maximum size is 400 bytes, so we know that there can be a maximum of 2 chunks
                 }
                 else{
-                    buffer.write_u16(value.size() + 1);
-                    buffer.write_u8(value.size());
+                    buffer.write_u16(value.size() + 1); // size of data + 1 (only 1 length byte)
+                    buffer.write_u8(value.size()); // chunk size
                 }
-                // std::cout << "Buffer size: " << value.size() << std::endl;
+
+                // writing the data
                 for (int i = 0; i < value.size(); i ++){
-                    if (i == 255)
-                        buffer.write_u8(value.size() - 255);
+                    if (i == chunk_size)
+                        buffer.write_u8(value.size() - chunk_size);
                     buffer.write_u8((uint8_t) value[i]);
                 }
                 break;
             }
             case QueryType::AAAA:
             {
+                // preamble
                 buffer.write_qname((char*) domain.c_str());
                 buffer.write_u16(QueryTypeFunc::to_num(QueryType::AAAA));
                 buffer.write_u16(1);
                 buffer.write_u32(ttl);
                 buffer.write_u16(16);
 
+                // AAAA specific
                 IPv6Addr addr = IPv6Addr(value);
                 for (int i = 0; i < 8; i ++)
                     buffer.write_u16(addr.bytes[i]);
@@ -817,7 +1099,7 @@ size_t DNSRecord::write(BytePacketBuffer &buffer)
     }
 }
 
-std::string DNSRecord::to_string()
+std::string DnsRecrod::to_string()
 {
     std::string s = QueryTypeFunc::to_string(qtype) + " { ";
     s += "domain: " + domain + ", ";
@@ -835,9 +1117,9 @@ DnsPacket::DnsPacket()
 {
     header = DnsHeader();
     questions = std::vector<DnsQuestion>();
-    answers = std::vector<DNSRecord>();
-    authorities = std::vector<DNSRecord>();
-    resources = std::vector<DNSRecord>();
+    answers = std::vector<DnsRecrod>();
+    authorities = std::vector<DnsRecrod>();
+    resources = std::vector<DnsRecrod>();
 }
 
 DnsPacket DnsPacket::from_buffer(BytePacketBuffer &buffer)
@@ -855,19 +1137,19 @@ DnsPacket DnsPacket::from_buffer(BytePacketBuffer &buffer)
 
         for (size_t i = 0; i < result.header.answers; i ++)
         {
-            DNSRecord answer = DNSRecord::read(buffer);
+            DnsRecrod answer = DnsRecrod::read(buffer);
             result.answers.push_back(answer);
         }
 
         for (size_t i = 0; i < result.header.authoritative_entries; i ++)
         {
-            DNSRecord entry = DNSRecord::read(buffer);
+            DnsRecrod entry = DnsRecrod::read(buffer);
             result.authorities.push_back(entry);
         }
 
         for (size_t i = 0; i < result.header.resource_entries; i ++)
         {
-            DNSRecord resource = DNSRecord::read(buffer);
+            DnsRecrod resource = DnsRecrod::read(buffer);
             result.resources.push_back(resource);
         }
     

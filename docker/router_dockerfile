@@ -1,7 +1,8 @@
 FROM ubuntu:latest 
 
-RUN apt-get update && apt-get install -y iptables iproute2 dnsutils iputils-ping nano
+RUN apt-get update && apt-get install -y iptables iproute2 dnsutils iputils-ping nano dos2unix
 
 WORKDIR /
 RUN mkdir -p /scripts
 COPY router /scripts/
+RUN dos2unix /scripts/setup.sh

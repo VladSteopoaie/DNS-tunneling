@@ -98,7 +98,7 @@ if __name__ == "__main__":
         sys.exit(0)
         
     
-    dns_server = ("89.35.251.30", 53)
+    dns_server = ("172.11.180.232", 53)
     file_name = bytes(sys.argv[1].encode("utf-8"))
     id = RandShort()
     

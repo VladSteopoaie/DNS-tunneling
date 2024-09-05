@@ -28,6 +28,7 @@ enum QueryType {
 };
 
 namespace QueryTypeFunc {
+    // convertors
     uint16_t to_num(QueryType x);
     QueryType from_num(uint16_t n);
     std::string to_string(QueryType qtype);
@@ -50,36 +51,39 @@ namespace ResultCodeFunc{
 // Structs to represent IPv4 and IPv6
 
 struct IPv4Addr{
-    uint8_t bytes[4];
+    uint8_t bytes[4]; // each byte from the IP address
 
     IPv4Addr(uint32_t x);
     IPv4Addr(std::string addr);
+
     std::string to_string() const;
 };
 
 struct IPv6Addr {
-    uint16_t bytes[8];
+    uint16_t bytes[8]; // each byte from the IP address
 
+    // normally IPv6 parsing is more complex than this, this is only for my
+    // dns server to manage IPv6 in case it receives an AAAA record
     IPv6Addr(std::vector<uint16_t> bytes);
     IPv6Addr(std::string s);
+
     std::string to_string() const;
 };
 
-// This is where the Rust server starts
+// This is where the code from the Rust server tutorial starts (https://github.com/EmilHernvall/dnsguide/tree/master)
 
-// A struct to easily read and write bytes to a buffer
+// A struct to easily read and write bytes into a buffer
 struct BytePacketBuffer{
-    static size_t packetSize;
-    std::vector<uint8_t> buf; 
-    size_t pos;
+    static size_t packet_size;
+    std::vector<uint8_t> buf; // raw buffer to store all the bytes
+    size_t pos; // current position within the buffer
 
     BytePacketBuffer();
     BytePacketBuffer(char* new_buf, size_t len);
 
-    // current position within buffer
     size_t getPos();
 
-    // move the position over a specific number of steps
+    // move the position over a specific number of bytes
     void step(size_t steps);
 
     // change current position
@@ -88,7 +92,7 @@ struct BytePacketBuffer{
     // get the current byte from buffer's position without changing the position
     uint8_t get(size_t pos);
 
-    // get a range of bytes from buf
+    // get a range of bytes from buf without changing the position
     uint8_t* get_range(size_t start, size_t len);
 
     // read one byte from the buffer's position and change the position
@@ -96,13 +100,16 @@ struct BytePacketBuffer{
     uint16_t read_u16(); // 2 bytes
     uint32_t read_u32();
 
+    // reads a domain name from the buffer
     void read_qname(char* outstr);
+    // writes a domain name into the buffer
     void write_qname(char* qname);
 
     void write_u8(uint8_t val);
     void write_u16(uint16_t val);
     void write_u32(uint32_t val);
 
+    // set a byte to have the value of val without changing the possition
     void set_u8(size_t pos, uint8_t val);
     void set_u16(size_t pos, uint16_t val);
 };
@@ -111,8 +118,9 @@ struct BytePacketBuffer{
 struct DnsHeader {
     uint16_t id;
     
-    uint16_t questions;
-    uint16_t answers;
+    uint16_t questions; // number of questions
+    // number of records in specific sections
+    uint16_t answers; 
     uint16_t authoritative_entries;
     uint16_t resource_entries;
 
@@ -148,17 +156,18 @@ struct DnsQuestion {
     std::string to_string();
 };
 
-struct DNSRecord {
+// complete documentation in .cpp file
+struct DnsRecord {
     std::string domain;
     QueryType qtype;
     std::string value;
     uint32_t ttl;
     static const size_t txt_size;
 
-    DNSRecord();
-    DNSRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) ;\
+    DnsRecord();
+    DnsRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) ;
 
-    static DNSRecord read(BytePacketBuffer &buffer);
+    static DnsRecord read(BytePacketBuffer &buffer);
     size_t write(BytePacketBuffer &buffer);
     std::string to_string();
 };
@@ -167,9 +176,9 @@ struct DNSRecord {
 struct DnsPacket{
     DnsHeader header;
     std::vector<DnsQuestion> questions;
-    std::vector<DNSRecord> answers;
-    std::vector<DNSRecord> authorities;
-    std::vector<DNSRecord> resources;
+    std::vector<DnsRecord> answers;
+    std::vector<DnsRecord> authorities;
+    std::vector<DnsRecord> resources;
 
     DnsPacket();
 
