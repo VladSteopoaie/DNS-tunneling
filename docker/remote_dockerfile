@@ -9,6 +9,7 @@ RUN .venv/bin/pip3 install --upgrade pip
 RUN .venv/bin/pip3 install scapy loguru
 
 WORKDIR /
-RUN mkdir -p /scripts
+RUN mkdir -p /scripts/modules
 COPY remote /scripts/
+COPY dns_server/modules /scripts/modules/
 RUN dos2unix /scripts/setup.sh

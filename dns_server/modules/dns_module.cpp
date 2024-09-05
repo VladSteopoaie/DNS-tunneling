@@ -8,6 +8,7 @@
  */
 
 #include "dns_module.h"
+#include <stdexcept>
 
 /*###################################*/
 /*---------[ QueryTypeFunc ]---------*/
@@ -227,14 +228,13 @@ BytePacketBuffer::BytePacketBuffer(char* new_buf, size_t len)
     pos = 0;            
     buf = std::vector<uint8_t>();
 
+    if (len > packet_size)
+    {
+        throw std::runtime_error("BytePacketBuffer: Size provided is greater that the packet size (512 bytes).");
+    }
+
     for (size_t i = 0; i < len; i ++)
     {
-        if (i >= sizeof(new_buf))
-        {
-            std::cout << "Warning: provided len: " << len << ", but buffer's size is: " << sizeof(new_buf) << std::endl;
-            break;
-        }
-
         buf.push_back(new_buf[i]);
     }
 }
@@ -268,7 +268,7 @@ uint8_t BytePacketBuffer::get(size_t pos)
 // get a range of bytes from buf without changing the position
 uint8_t* BytePacketBuffer::get_range(size_t start, size_t len)
 {
-    if (this->pos + start + len >= packet_size)
+    if (start + len >= packet_size)
         throw std::runtime_error("End of buffer 3!");
 
     uint8_t* res = new uint8_t[len + 1];
@@ -756,9 +756,9 @@ std::string DnsQuestion::to_string()
  */
 
 
-const size_t DnsRecrod::txt_size = 400;
+const size_t DnsRecord::txt_size = 400;
 
-DnsRecrod::DnsRecrod()
+DnsRecord::DnsRecord()
 {
     this->domain = "";
     this->qtype = QueryType::UNKNOWN;
@@ -766,7 +766,7 @@ DnsRecrod::DnsRecrod()
     this->ttl = 0;
 }
 
-DnsRecrod::DnsRecrod(std::string domain, QueryType qtype, std::string value, uint32_t ttl) 
+DnsRecord::DnsRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) 
 {
     this->domain = domain;
     this->qtype = qtype;
@@ -774,7 +774,7 @@ DnsRecrod::DnsRecrod(std::string domain, QueryType qtype, std::string value, uin
     this->ttl = ttl;
 }
 
-DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
+DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 {
     char* domain = new char[1024];
 
@@ -785,7 +785,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
         uint32_t ttl = buffer.read_u32();
         size_t data_len = (size_t) buffer.read_u16();
     
-        DnsRecrod record;
+        DnsRecord record;
 
         switch(qtype)
         {
@@ -803,7 +803,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
 
                 uint32_t raw_addr = buffer.read_u32();
                 IPv4Addr addr = IPv4Addr(raw_addr);
-                record = DnsRecrod(domain, qtype, addr.to_string(), ttl);
+                record = DnsRecord(domain, qtype, addr.to_string(), ttl);
                 break;
             }   
             case QueryType::NS:
@@ -820,7 +820,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
 
                 char ns[1024];
                 buffer.read_qname(ns);
-                record = DnsRecrod(domain, qtype, ns, ttl);
+                record = DnsRecord(domain, qtype, ns, ttl);
                 break;
             }
             case QueryType::CNAME:
@@ -837,7 +837,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
 
                 char cname[1024];
                 buffer.read_qname(cname);
-                record = DnsRecrod(domain, qtype, cname, ttl);
+                record = DnsRecord(domain, qtype, cname, ttl);
                 break;
             }
             case QueryType::MX:
@@ -858,7 +858,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
                 uint16_t priority = buffer.read_u16();
                 char mx[1024];
                 buffer.read_qname(mx);
-                record = DnsRecrod(domain, qtype, std::to_string(priority) + ", " + mx, ttl);
+                record = DnsRecord(domain, qtype, std::to_string(priority) + ", " + mx, ttl);
                 break;
             }
             case QueryType::AAAA:
@@ -878,7 +878,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
                     bytes.push_back(buffer.read_u16());
 
                 IPv6Addr addr = IPv6Addr(bytes);
-                record = DnsRecrod(domain, qtype, addr.to_string(), ttl);
+                record = DnsRecord(domain, qtype, addr.to_string(), ttl);
                 break;
             }
             case QueryType::TXT:
@@ -928,7 +928,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
             {
                 char *value = (char*) buffer.get_range(buffer.getPos(), data_len);
                 buffer.step(data_len);
-                record = DnsRecrod(domain, qtype, value, ttl);
+                record = DnsRecord(domain, qtype, value, ttl);
                 delete[] value;
                 break;
             }
@@ -944,7 +944,7 @@ DnsRecrod DnsRecrod::read(BytePacketBuffer &buffer)
     }
 }
 
-size_t DnsRecrod::write(BytePacketBuffer &buffer)
+size_t DnsRecord::write(BytePacketBuffer &buffer)
 {
     size_t start_pos = buffer.getPos();
 
@@ -1099,7 +1099,7 @@ size_t DnsRecrod::write(BytePacketBuffer &buffer)
     }
 }
 
-std::string DnsRecrod::to_string()
+std::string DnsRecord::to_string()
 {
     std::string s = QueryTypeFunc::to_string(qtype) + " { ";
     s += "domain: " + domain + ", ";
@@ -1117,9 +1117,9 @@ DnsPacket::DnsPacket()
 {
     header = DnsHeader();
     questions = std::vector<DnsQuestion>();
-    answers = std::vector<DnsRecrod>();
-    authorities = std::vector<DnsRecrod>();
-    resources = std::vector<DnsRecrod>();
+    answers = std::vector<DnsRecord>();
+    authorities = std::vector<DnsRecord>();
+    resources = std::vector<DnsRecord>();
 }
 
 DnsPacket DnsPacket::from_buffer(BytePacketBuffer &buffer)
@@ -1137,19 +1137,19 @@ DnsPacket DnsPacket::from_buffer(BytePacketBuffer &buffer)
 
         for (size_t i = 0; i < result.header.answers; i ++)
         {
-            DnsRecrod answer = DnsRecrod::read(buffer);
+            DnsRecord answer = DnsRecord::read(buffer);
             result.answers.push_back(answer);
         }
 
         for (size_t i = 0; i < result.header.authoritative_entries; i ++)
         {
-            DnsRecrod entry = DnsRecrod::read(buffer);
+            DnsRecord entry = DnsRecord::read(buffer);
             result.authorities.push_back(entry);
         }
 
         for (size_t i = 0; i < result.header.resource_entries; i ++)
         {
-            DnsRecrod resource = DnsRecrod::read(buffer);
+            DnsRecord resource = DnsRecord::read(buffer);
             result.resources.push_back(resource);
         }
     

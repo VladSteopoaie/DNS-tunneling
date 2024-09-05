@@ -59,9 +59,7 @@ std::vector<DnsRecord> records_from_file(const char* file)
         result.push_back(record);
     }
 
-    // for (auto res : result) {
-    //     std::cout << res.to_string() << std::endl;
-    // }
+
 
     fin.close();
     return result;
@@ -161,7 +159,7 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
             close(socket);
             throw std::runtime_error("Some error occurred when receiving data!\n");
         }
-
+        
         BytePacketBuffer res_buffer = BytePacketBuffer(res_bytes, bytes_read);
         
         close(socket);
