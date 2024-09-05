@@ -2,19 +2,19 @@ build: bin/dns_tunnel
 	@rm *.o
 
 bin/dns_tunnel: dns_tunnel.o dns_module.o connectsock.o encoders.o | bin
-	g++ -g dns_tunnel.o dns_module.o connectsock.o encoders.o -o bin/dns_tunnel
+	g++ -g -std=c++20 dns_tunnel.o dns_module.o connectsock.o encoders.o -o bin/dns_tunnel
 
 bin:
 	mkdir -p bin
 
 dns_tunnel.o: dns_tunnel.cpp
-	g++ -g -c dns_tunnel.cpp
+	g++ -g -std=c++20 -c dns_tunnel.cpp
 
 dns_module.o: modules/dns_module.cpp
-	g++ -g -c modules/dns_module.cpp
+	g++ -g -std=c++20 -c modules/dns_module.cpp
 
 connectsock.o: modules/connectsock.cpp
-	g++ -g -c modules/connectsock.cpp
+	g++ -g -std=c++20 -c modules/connectsock.cpp
 
 encoders.o: modules/encoders.cpp
-	g++ -g -c modules/encoders.cpp
+	g++ -g -std=c++20 -c modules/encoders.cpp

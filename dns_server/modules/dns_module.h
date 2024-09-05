@@ -51,19 +51,21 @@ namespace ResultCodeFunc{
 // Structs to represent IPv4 and IPv6
 
 struct IPv4Addr{
-    uint8_t bytes[4]; // each byte from the IP address
+    std::vector<uint8_t> bytes(4); // each byte from the IP address
 
     IPv4Addr(uint32_t x);
+    IPv4Addr(std::vector<uint8_t> bytes);
     IPv4Addr(std::string addr);
 
     std::string to_string() const;
 };
 
 struct IPv6Addr {
-    uint16_t bytes[8]; // each byte from the IP address
+    std::vector<uint16_t> bytes(8); // each byte from the IP address
 
     // normally IPv6 parsing is more complex than this, this is only for my
     // dns server to manage IPv6 in case it receives an AAAA record
+    IPv6Addr(std::vector<uint8_t> bytes);
     IPv6Addr(std::vector<uint16_t> bytes);
     IPv6Addr(std::string s);
 
@@ -160,12 +162,12 @@ struct DnsQuestion {
 struct DnsRecord {
     std::string domain;
     QueryType qtype;
-    std::string value;
+    std::vector<uint8_t> value;
     uint32_t ttl;
     static const size_t txt_size;
 
     DnsRecord();
-    DnsRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) ;
+    DnsRecord(std::string domain, QueryType qtype, std::vector<uint8_t> value, uint32_t ttl) ;
 
     static DnsRecord read(BytePacketBuffer &buffer);
     size_t write(BytePacketBuffer &buffer);

@@ -129,6 +129,11 @@ IPv4Addr::IPv4Addr(uint32_t x)
     bytes[3] = (uint8_t) ((x >> 0) & 0xFF);
 }
 
+IPv4Addr::IPv4Addr(std::vector<uint8_t> bytes)
+{
+    this->bytes = bytes;
+}
+
 IPv4Addr::IPv4Addr(std::string addr)
 {
     char* ip = (char*) addr.c_str();
@@ -171,10 +176,17 @@ std::string IPv4Addr::to_string() const
 /*---------[ IPv6Addr ]---------*/
 /*##############################*/
 
+IPv6Addr::IPv6Addr(std::vector<uint8_t> bytes)
+{
+    for (int i = 0; i < bytes.size(); i += 2)
+    {
+        this->bytes[i / 2] = (bytes[i] << 8) + bytes[i + 1]; 
+    }
+}
+
 IPv6Addr::IPv6Addr(std::vector<uint16_t> bytes)
 {
-    for (int i = 0; i < 8; i ++)
-        this->bytes[i] = bytes[i];
+    this->bytes = bytes;
 }
 
 IPv6Addr::IPv6Addr(std::string str)
@@ -762,11 +774,11 @@ DnsRecord::DnsRecord()
 {
     this->domain = "";
     this->qtype = QueryType::UNKNOWN;
-    this->value = "";
+    this->value = std::vector<uint8_t>();
     this->ttl = 0;
 }
 
-DnsRecord::DnsRecord(std::string domain, QueryType qtype, std::string value, uint32_t ttl) 
+DnsRecord::DnsRecord(std::string domain, QueryType qtype, std::vector<uint8_t> value, uint32_t ttl) 
 {
     this->domain = domain;
     this->qtype = qtype;
@@ -803,7 +815,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 
                 uint32_t raw_addr = buffer.read_u32();
                 IPv4Addr addr = IPv4Addr(raw_addr);
-                record = DnsRecord(domain, qtype, addr.to_string(), ttl);
+                record = DnsRecord(domain, qtype, addr.bytes, ttl);
                 break;
             }   
             case QueryType::NS:
@@ -820,7 +832,12 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 
                 char ns[1024];
                 buffer.read_qname(ns);
-                record = DnsRecord(domain, qtype, ns, ttl);
+                
+                std::vector<uint8_t> ns_bytes;
+                for (int i = 0; ns[i]; i++)
+                    ns_bytes.push_back((uint8_t) ns[i]);
+
+                record = DnsRecord(domain, qtype, ns_bytes, ttl);
                 break;
             }
             case QueryType::CNAME:
@@ -837,7 +854,12 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 
                 char cname[1024];
                 buffer.read_qname(cname);
-                record = DnsRecord(domain, qtype, cname, ttl);
+
+                std::vector<uint8_t> cname_bytes;
+                for (int i = 0; cname[i]; i++)
+                    cname_bytes.push_back((uint8_t) cname[i]);
+
+                record = DnsRecord(domain, qtype, cname_bytes, ttl);
                 break;
             }
             case QueryType::MX:
@@ -858,7 +880,13 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 uint16_t priority = buffer.read_u16();
                 char mx[1024];
                 buffer.read_qname(mx);
-                record = DnsRecord(domain, qtype, std::to_string(priority) + ", " + mx, ttl);
+
+                std::string mx_value = std::to_string(priority) + ", " + mx;
+                std::vector<uint8_t> mx_bytes;
+                for (int i = 0; i < mx_value.size(); i++)
+                    mx_bytes.push_back((uint8_t) mx_value[i]);
+                
+                record = DnsRecord(domain, qtype, mx_bytes, ttl);
                 break;
             }
             case QueryType::AAAA:
@@ -873,12 +901,11 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 *    A 128-bit (16-byte) IPv6 address encoded as 16 bytes.
                 */
 
-                std::vector<uint16_t> bytes;
-                for (int i = 0; i < 8; i ++)
-                    bytes.push_back(buffer.read_u16());
-
-                IPv6Addr addr = IPv6Addr(bytes);
-                record = DnsRecord(domain, qtype, addr.to_string(), ttl);
+                std::vector<uint8_t> bytes;
+                for (int i = 0; i < 16; i ++)
+                    bytes.push_back(buffer.read_u8());
+                
+                record = DnsRecord(domain, qtype, bytes, ttl);
                 break;
             }
             case QueryType::TXT:
@@ -896,15 +923,16 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 *    Arbitrary text data stored in the record.
                 */
 
-                char value[data_len - 2];
-                size_t chunk_size = 255;
-
-                for (int i = 0, value_idx = 0; i < data_len; i ++)
+                const size_t chunk_size = 255;
+                std::vector<uint8_t> txt_value;
+                std::cout << "Data len: " << data_len << std::endl;
+                for (int i = 0; i < data_len; i ++)
                 {
                     if (i == 0) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
-                        if (chunk_len + 1 != data_len || chunk_len != chunk_size)
+                        std::cout << "1. Chunk len: " << chunk_len << std::endl;
+                        if (chunk_len + 1 != data_len && chunk_len != chunk_size)
                             throw std::runtime_error("TXT data length different from first chunk lengths!");
                         continue;
                     }
@@ -912,24 +940,30 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                     if (i == 256) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
+                        std::cout << "2. Chunk len: " << chunk_len << std::endl;
                         if (chunk_len + chunk_size + 2 != data_len)
                             throw std::runtime_error("TXT data length different from second chunk lengths!");
                         continue;
                     }
 
-                    value[value_idx] = buffer.read_u8();
-                    value_idx ++;
+                    txt_value.push_back(buffer.read_u8());
                 }
 
-                record = DnsRecord(domain, qtype, value, ttl);
+
+                record = DnsRecord(domain, qtype, txt_value, ttl);
                 break;
             }
             default:
             {
-                char *value = (char*) buffer.get_range(buffer.getPos(), data_len);
+                char *default_value = (char*) buffer.get_range(buffer.getPos(), data_len);
                 buffer.step(data_len);
-                record = DnsRecord(domain, qtype, value, ttl);
-                delete[] value;
+
+                std::vector<uint8_t> default_bytes;
+                for(int i = 0; i < data_len; i++)
+                    default_bytes.push_back(default_value[i]);
+
+                record = DnsRecord(domain, qtype, default_bytes, ttl);
+                delete[] default_value;
                 break;
             }
         }
@@ -961,11 +995,10 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(4); // data_len
 
                 // A specific
-                IPv4Addr ip = IPv4Addr(value);
-                buffer.write_u8(ip.bytes[0]);
-                buffer.write_u8(ip.bytes[1]);
-                buffer.write_u8(ip.bytes[2]);
-                buffer.write_u8(ip.bytes[3]);
+                buffer.write_u8(value[0]);
+                buffer.write_u8(value[1]);
+                buffer.write_u8(value[2]);
+                buffer.write_u8(value[3]);
                 break;
             }
             case QueryType::NS:
@@ -980,7 +1013,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0); // the real length will be set after the domain is written
                 
                 // NS specific
-                buffer.write_qname((char*) value.c_str());
+                buffer.write_qname(reinterpret_cast<char*>(value.data()));
 
                 size_t size = buffer.getPos() - (pos + 2);
                 buffer.set_u16(pos, (uint16_t) size); // setting the data_len
@@ -999,7 +1032,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0);
                 
                 // CNAME specific
-                buffer.write_qname((char*) value.c_str());
+                buffer.write_qname(reinterpret_cast<char*>(value.data()));
 
                 // setting data_len
                 size_t size = buffer.getPos() - (pos + 2);
@@ -1018,7 +1051,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0);
 
                 // MX specific
-                char *priority = strtok((char*)value.c_str(), ", ");
+                char *priority = strtok(reinterpret_cast<char*>(value.data()), ", ");
                 char *host = strtok(NULL, ", ");
 
                 buffer.write_u16((uint16_t) atoi(priority));
@@ -1027,6 +1060,21 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 // setting data_len
                 size_t size = buffer.getPos() - (pos + 2);
                 buffer.set_u16(pos, (uint16_t) size);
+                break;
+            }
+            case QueryType::AAAA:
+            {
+                // preamble
+                buffer.write_qname((char*) domain.c_str());
+                buffer.write_u16(QueryTypeFunc::to_num(QueryType::AAAA));
+                buffer.write_u16(1);
+                buffer.write_u32(ttl);
+                buffer.write_u16(16);
+
+                // AAAA specific
+                for (int i = 0; i < 16; i ++)
+                    buffer.write_u8(value[i]);
+
                 break;
             }
             case QueryType::TXT:
@@ -1043,8 +1091,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 * After that there is a byte dennoting the lenght of the next chunk.
                 */
 
-                if (value.size() > txt_size) // if the message is smaller a padding of \n bytes will be added
-                                             // the \n bytes will be replaced with null bytes in take_4_bytes
+                if (value.size() > txt_size + 2)
                     throw std::runtime_error("TXT size exceeded!");
                 
                 size_t chunk_size = 255;
@@ -1066,24 +1113,8 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 for (int i = 0; i < value.size(); i ++){
                     if (i == chunk_size)
                         buffer.write_u8(value.size() - chunk_size);
-                    buffer.write_u8((uint8_t) value[i]);
+                    buffer.write_u8(value[i]);
                 }
-                break;
-            }
-            case QueryType::AAAA:
-            {
-                // preamble
-                buffer.write_qname((char*) domain.c_str());
-                buffer.write_u16(QueryTypeFunc::to_num(QueryType::AAAA));
-                buffer.write_u16(1);
-                buffer.write_u32(ttl);
-                buffer.write_u16(16);
-
-                // AAAA specific
-                IPv6Addr addr = IPv6Addr(value);
-                for (int i = 0; i < 8; i ++)
-                    buffer.write_u16(addr.bytes[i]);
-
                 break;
             }
             default:
@@ -1103,7 +1134,26 @@ std::string DnsRecord::to_string()
 {
     std::string s = QueryTypeFunc::to_string(qtype) + " { ";
     s += "domain: " + domain + ", ";
-    s += "data: " + value + ", ";
+    s += "data: ";
+    switch(qtype)
+    {
+        case QueryType::A: 
+        {
+            s += IPv4Addr(value).to_string();
+            break;
+        }
+        case QueryType::AAAA:
+        {
+            s += IPv6Addr(value).to_string();
+            break;
+        }
+        default:
+        {
+            s += reinterpret_cast<char*>(value.data());
+            break;
+        }
+    }
+    s += ", ";
     s += "ttl: " + std::to_string(ttl) + " ";
     s += "}";
     return s;

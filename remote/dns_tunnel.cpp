@@ -264,7 +264,7 @@ int handle_connection(int socket)
 
 			std::pair<int, std::string> info = parse_qname(q.name, false);
 			int id = info.first;
-			std::cout << info.first << " " << info.second << std::endl;
+			// std::cout << info.first << " " << info.second << std::endl;
 			int packet_number = atoi(info.second.c_str());
 
 			if (req_info.first != id)
