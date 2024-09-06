@@ -51,7 +51,7 @@ namespace ResultCodeFunc{
 // Structs to represent IPv4 and IPv6
 
 struct IPv4Addr{
-    std::vector<uint8_t> bytes(4); // each byte from the IP address
+    std::vector<uint8_t> bytes = std::vector<uint8_t>(4); // each byte from the IP address
 
     IPv4Addr(uint32_t x);
     IPv4Addr(std::vector<uint8_t> bytes);
@@ -61,7 +61,7 @@ struct IPv4Addr{
 };
 
 struct IPv6Addr {
-    std::vector<uint16_t> bytes(8); // each byte from the IP address
+    std::vector<uint16_t> bytes = std::vector<uint16_t>(8); // each byte from the IP address
 
     // normally IPv6 parsing is more complex than this, this is only for my
     // dns server to manage IPv6 in case it receives an AAAA record
@@ -105,7 +105,7 @@ struct BytePacketBuffer{
     // reads a domain name from the buffer
     void read_qname(char* outstr);
     // writes a domain name into the buffer
-    void write_qname(char* qname);
+    void write_qname(const char* qname);
 
     void write_u8(uint8_t val);
     void write_u16(uint16_t val);
@@ -192,9 +192,14 @@ struct DnsPacket{
     IPv4Addr get_resolved_ns(std::string qname);
     IPv4Addr get_random_a();
     std::vector<std::string> get_unresolved_ns(std::string qname);
+
+    std::string to_string();
 };
 
 // This is a helper function that takes the first 4 bytes from a string
 uint32_t take_4_bytes(std::string val, int index);
+void get_byte_array_from_string(std::vector<uint8_t> &byte_array, std::string string); 
+void get_string_from_byte_array(std::string &string, std::vector<uint8_t> byte_array);
+
 
 #endif 

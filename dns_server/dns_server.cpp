@@ -49,7 +49,7 @@ std::vector<DnsRecord> records_from_file(const char* file)
         fin >> reader; // qtype
         record.qtype = QueryTypeFunc::from_string(reader);
         fin.getline(reader, sizeof(reader)-1); // data
-        record.value = reader;
+        get_byte_array_from_string(record.value, reader);
         // trim white spces
         record.value.erase(record.value.begin(), std::find_if(record.value.begin(), record.value.end(), [](unsigned char ch) {
             return !std::isspace(ch);
@@ -89,11 +89,6 @@ DnsPacket local_lookup(std::string qname, QueryType qtype)
     DnsPacket result;
     try{
         std::vector<DnsRecord> records = search_in_records(qname, qtype, RECORDS);
-
-        // std::cout << "RECORDS: "<< std::endl;
-        // for (auto x : records){
-        //     std::cout << x.to_string() << std::endl;
-        // }
 
         if (records.empty())
             result.header.rescode = ResultCode::NXDOMAIN;
@@ -263,6 +258,8 @@ void handle_query(int socket)
         BytePacketBuffer req_buffer = BytePacketBuffer(req_bytes, (size_t) bytes_read);
         DnsPacket request = DnsPacket::from_buffer(req_buffer);
 
+        std::cout << "Request received:\n\n" << request.to_string() << std::endl;
+
         DnsPacket packet;   
         packet.header.id = request.header.id;
         packet.header.recursion_desired = true;
@@ -272,7 +269,7 @@ void handle_query(int socket)
         if (request.header.questions == 1 && request.questions.size() == 1)
         {
             DnsQuestion question = request.questions.front();
-            std::cout << "Received query:\n" << question.to_string() << std::endl;
+            // std::cout << "Received query:\n" << question.to_string() << std::endl;
 
             DnsPacket result;
             try{
@@ -289,22 +286,22 @@ void handle_query(int socket)
 
             packet.questions.push_back(question);
 
-            std::cout << "Answer:\n";
+            // std::cout << "Answer:\n";
             for (size_t i = 0; i < result.answers.size(); i ++)
             {
-                std::cout << result.answers[i].to_string() << std::endl;
+                // std::cout << result.answers[i].to_string() << std::endl;
                 packet.answers.push_back(result.answers[i]);
             }
-            std::cout << "Authorities:\n";
+            // std::cout << "Authorities:\n";
             for (size_t i = 0; i < result.authorities.size(); i ++)
             {
-                std::cout << result.authorities[i].to_string() << std::endl;
+                // std::cout << result.authorities[i].to_string() << std::endl;
                 packet.authorities.push_back(result.authorities[i]);
             }
-            std::cout << "Resources:\n";
+            // std::cout << "Resources:\n";
             for (size_t i = 0; i < result.resources.size(); i ++)
             {
-                std::cout << result.resources[i].to_string() << std::endl;
+                // std::cout << result.resources[i].to_string() << std::endl;
                 packet.resources.push_back(result.resources[i]);
             }
         }
@@ -321,7 +318,9 @@ void handle_query(int socket)
         std::copy(res_buffer.buf.begin(), res_buffer.buf.end(), res_bytes);
 
         ssize_t bytes_sent = sendto(socket, res_bytes, datalen, 0, (struct sockaddr*) &source_addr, source_addrlen);
-    
+
+        std::cout << "Sending response:\n\n" << packet.to_string() << std::endl;
+
         if (bytes_sent <= 0)
         {
             throw std::runtime_error("An error occured when sending data! (handle_query)");
