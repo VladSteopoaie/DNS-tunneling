@@ -10,6 +10,7 @@
 
 #define DOMAIN "tunnel.mydomain.top."
 #define DOMAIN_LEN 3
+#define READING_SIZE 300
 
 std::vector<std::string> split(const std::string &s, char delimiter)
 {
@@ -174,10 +175,11 @@ int handle_connection(int socket)
 
 		if (!file.is_open())
 		{
-			// file not found, sending the packet with n == 0
-			std::string ack = "0." + std::to_string(req_info.first) + ".down." + DOMAIN;
-
 			packet.questions.push_back(question);
+
+			// file not found, sending the packet with n == 0
+			std::vector<uint8_t> ack;
+			get_byte_array_from_string(ack, "0." + std::to_string(req_info.first) + ".down." + DOMAIN);
 			packet.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
 			packet.header.answers = 1;
 			packet.write(res_buffer);
@@ -199,13 +201,14 @@ int handle_connection(int socket)
 		size_t file_size = (size_t)file.tellg();
 		file.seekg(0, std::ios::beg);
 
-		int num_packets = file_size / DnsRecord::txt_size + 1;
+		int num_packets = file_size / READING_SIZE + 1;
 
 		DnsPacket last_sent = packet; // by knowing the last packet we sent we can make the server more robust
 									  // if the connection is interupted we can resent the packet untill it's received
-		// sending the confirmation + number of packets to expect
-		std::string ack = std::to_string(num_packets) + "." + std::to_string(req_info.first) + ".down." + DOMAIN;
 		last_sent.questions.push_back(question);
+		// sending the confirmation + number of packets to expect
+		std::vector<uint8_t> ack;
+		get_byte_array_from_string(ack, std::to_string(num_packets) + "." + std::to_string(req_info.first) + ".down." + DOMAIN);
 		last_sent.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
 		last_sent.header.answers = 1;
 		last_sent.write(res_buffer);
@@ -296,8 +299,8 @@ int handle_connection(int socket)
 				file.seekg(previous_batch);
 
 			previous_batch = file.tellg();
-			std::string buffer(DnsRecord::txt_size, '\0');
-			file.read(&buffer[0], DnsRecord::txt_size);
+			std::string buffer(READING_SIZE, '\0');
+			file.read(&buffer[0], READING_SIZE);
 
 			std::size_t bytesRead = file.gcount();
 			std::cout << "Read " << bytesRead << " bytes." << std::endl;
@@ -305,7 +308,11 @@ int handle_connection(int socket)
 
 			last_sent = packet;
 			last_sent.questions.push_back(q);
-			last_sent.answers.push_back(DnsRecord(q.name, QueryType::TXT, buffer, 300));
+
+			std::vector<uint8_t> bytes_from_string;
+			get_byte_array_from_string(bytes_from_string, base64_encode(buffer));
+
+			last_sent.answers.push_back(DnsRecord(q.name, QueryType::TXT, bytes_from_string, 300));
 			last_sent.header.answers = 1;
 			last_sent.write(res_buffer);
 			r = SendData(socket, res_buffer, (struct sockaddr *)&source_addr, source_addrlen);

@@ -258,7 +258,7 @@ void handle_query(int socket)
         BytePacketBuffer req_buffer = BytePacketBuffer(req_bytes, (size_t) bytes_read);
         DnsPacket request = DnsPacket::from_buffer(req_buffer);
 
-        std::cout << "Request received:\n\n" << request.to_string() << std::endl;
+        // std::cout << "Request received:\n\n" << request.to_string() << std::endl;
 
         DnsPacket packet;   
         packet.header.id = request.header.id;
@@ -269,7 +269,7 @@ void handle_query(int socket)
         if (request.header.questions == 1 && request.questions.size() == 1)
         {
             DnsQuestion question = request.questions.front();
-            // std::cout << "Received query:\n" << question.to_string() << std::endl;
+            std::cout << "Received query:\n" << question.to_string() << std::endl;
 
             DnsPacket result;
             try{
@@ -319,7 +319,7 @@ void handle_query(int socket)
 
         ssize_t bytes_sent = sendto(socket, res_bytes, datalen, 0, (struct sockaddr*) &source_addr, source_addrlen);
 
-        std::cout << "Sending response:\n\n" << packet.to_string() << std::endl;
+        std::cout << "Sending response:\n\n" << packet.answers[0].to_string() << std::endl;
 
         if (bytes_sent <= 0)
         {

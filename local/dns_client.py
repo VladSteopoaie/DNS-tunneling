@@ -86,7 +86,7 @@ def start_transfer(server, qname):
             print("Data could not be received! Repeating step", i)
             return 1
         else:
-            file.write(b''.join(p.an.rdata))
+            file.write(base64.b64decode(b''.join(p.an.rdata)))
             i += 1
         
 
