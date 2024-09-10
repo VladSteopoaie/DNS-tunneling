@@ -18,7 +18,18 @@
     @return SOCK_STREAM, SOCK_DGRAM on success if tcp or udp is provided as 
         argument and -1 on error and a message is printed on stderr.
 */
-int StrToSocktype(const char* str);
+int str_to_sock_type(const char* str);
+
+/**
+    @brief Set a timeout for a socket when listening for connections.
+
+    @param socket the socket to set the timeout
+    @param timeout the time specified in seconds
+
+    @return SOCK_STREAM, SOCK_DGRAM on success if tcp or udp is provided as 
+        argument and -1 on error and a message is printed on stderr.
+*/
+int set_socket_timeout(int socket, int timeout);
 
 /**
     @brief Creates a connection socket of type 'transport', using 
@@ -31,7 +42,7 @@ int StrToSocktype(const char* str);
     @return A socket file descriptor connected to the 'host' on success 
         and -1 on error.
 */
-int ConnectSock(const char *host, const char *service, const char *transport);
+int connect_sock(const char *host, const char *service, const char *transport);
 
 
 /**
@@ -44,16 +55,16 @@ int ConnectSock(const char *host, const char *service, const char *transport);
     @return A socket file descriptor that listens on port 'service' on success
         and -1 on error.
 */
-int PassiveSock(const char *service, const char *transport);
+int passive_sock(const char *service, const char *transport);
 
 /*
     Function wrappers
 */
 
-int ConnectSockTCP(const char* host, const char* service);
-int ConnectSockUDP(const char* host, const char* service);
+int connect_sock_tcp(const char* host, const char* service);
+int connect_sock_udp(const char* host, const char* service);
 
-int PassiveSockTCP(const char* service);
-int PassiveSockUDP(const char* service);
+int passive_sock_tcp(const char* service);
+int passive_sock_udp(const char* service);
 
 #endif

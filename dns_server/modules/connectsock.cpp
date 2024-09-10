@@ -2,7 +2,7 @@
 
 #define LISTEN_BACKLOG 128
 
-int StrToSocktype(const char* str)
+int str_to_sock_type(const char* str)
 {
     if (!strcmp(str, "tcp"))
         return SOCK_STREAM;
@@ -13,14 +13,36 @@ int StrToSocktype(const char* str)
     }
 }
 
-int ConnectSock(const char *host, const char *service, const char *transport)
+int set_socket_timeout(int socket, int _timeout)
+{
+	struct timeval timeout;
+	timeout.tv_sec = _timeout;
+	timeout.tv_usec = 0;
+
+	if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+		// std::cerr << "Error setting receive timeout: " << strerror(errno) << std::endl;
+        return -1;
+    }
+
+	if (setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+		// std::cerr << "Error setting send timeout: " << strerror(errno) << std::endl;
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int connect_sock(const char *host, const char *service, const char *transport)
 {
     // declarations
     int socktype, ret_code, sock;
     struct addrinfo hints;
     struct addrinfo *result, *res_elem;
 
-    if ((socktype = StrToSocktype(transport)) < 0)
+    if ((socktype = str_to_sock_type(transport)) < 0)
     {
         fprintf(stderr, "Transport protocol not supported!\n");
         return -1;
@@ -74,25 +96,25 @@ int ConnectSock(const char *host, const char *service, const char *transport)
 }
 
 
-int ConnectSockTCP(const char* host, const char* service)
+int connect_sock_tcp(const char* host, const char* service)
 {
-    return ConnectSock(host, service, "tcp");
+    return connect_sock(host, service, "tcp");
 }
 
-int ConnectSockUDP(const char* host, const char* service)
+int connect_sock_udp(const char* host, const char* service)
 {
-    return ConnectSock(host, service, "udp");
+    return connect_sock(host, service, "udp");
 }
 
 
-int PassiveSock(const char *service, const char *transport)
+int passive_sock(const char *service, const char *transport)
 {
     // declarations
     int socktype, sock, ret_code;
     struct addrinfo hints;
     struct addrinfo *result, *res_elem;
 
-    if ((socktype = StrToSocktype(transport)) < 0)
+    if ((socktype = str_to_sock_type(transport)) < 0)
     {
         fprintf(stderr, "Transport protocol not supported!\n");
         return -1;
@@ -159,12 +181,12 @@ int PassiveSock(const char *service, const char *transport)
 
 }
 
-int PassiveSockTCP(const char* service)
+int passive_sock_tcp(const char* service)
 {
-    return PassiveSock(service, "tcp");
+    return passive_sock(service, "tcp");
 }
 
-int PassiveSockUDP(const char* service)
+int passive_sock_udp(const char* service)
 {
-    return PassiveSock(service, "udp");
+    return passive_sock(service, "udp");
 }

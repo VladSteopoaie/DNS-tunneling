@@ -1,46 +1,28 @@
 #include "./modules/dns_module.h"
 #include "./modules/connectsock.h"
-#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <fstream>
 
-const char* RECORD_FILE = "./modules/dns_records.txt";
-std::vector<DnsRecord> RECORDS;
+const char* RECORD_FILE = "./modules/dns_records.txt"; // records file for local lookups
+std::vector<DnsRecord> RECORDS; // where local records will be stored
 IPv4Addr AROOT = IPv4Addr("198.41.0.4"); // this is a.root-servers.net
 
-
-// Function to set a timeout on a socket
-void setSocketTimeout(int socket, int timeoutSeconds)
-{
-	struct timeval timeout;
-	timeout.tv_sec = timeoutSeconds;
-	timeout.tv_usec = 0;
-
-	if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-	{
-		std::cerr << "Error setting receive timeout: " << strerror(errno) << std::endl;
-	}
-
-	if (setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0)
-	{
-		std::cerr << "Error setting send timeout: " << strerror(errno) << std::endl;
-	}
-}
-
+// Parses a file with records and stores them in a vector
+// record example: tunnel.mydomain.top IN NS ns.mydomain.top
 std::vector<DnsRecord> records_from_file(const char* file)
 {
+    std::vector<DnsRecord> result; 
+
+    // opening the file
     std::ifstream fin(file);
+    char reader[500]; // a buffer to read into
     if (!fin.is_open())
     {
         throw std::runtime_error("Could not open records file!");
     }
-
-    std::vector<DnsRecord> result; 
-    
-    char reader[500];
 
     while (fin >> reader) { // domain
         DnsRecord record;
@@ -48,8 +30,10 @@ std::vector<DnsRecord> records_from_file(const char* file)
         fin >> reader; // class
         fin >> reader; // qtype
         record.qtype = QueryTypeFunc::from_string(reader);
+
         fin.getline(reader, sizeof(reader)-1); // data
         get_byte_array_from_string(record.value, reader);
+
         // trim white spces
         record.value.erase(record.value.begin(), std::find_if(record.value.begin(), record.value.end(), [](unsigned char ch) {
             return !std::isspace(ch);
@@ -59,12 +43,11 @@ std::vector<DnsRecord> records_from_file(const char* file)
         result.push_back(record);
     }
 
-
-
     fin.close();
     return result;
 }
 
+// Searches for a domain with a specific type within a vector of records
 std::vector<DnsRecord> search_in_records(std::string qname, QueryType qtype, std::vector<DnsRecord> &records)
 {
     std::vector<DnsRecord> result;
@@ -72,10 +55,11 @@ std::vector<DnsRecord> search_in_records(std::string qname, QueryType qtype, std
     for (auto &rec : records)
     {
         if (strcmp(rec.domain.c_str(), qname.c_str()) == 0) {
-            if (rec.qtype == QueryType::NS || rec.qtype == qtype)
+            // the domain is the one we are looking for
+            if (rec.qtype == QueryType::NS || rec.qtype == qtype) // checking for the same type or maybe an NS
                 result.push_back(rec);
         }
-        else if (qname.ends_with(rec.domain))
+        else if (qname.ends_with(rec.domain)) // if the domain is ending whith the string we aim for an NS 
             if (rec.qtype == QueryType::NS)
                 result.push_back(rec);
     }
@@ -83,7 +67,7 @@ std::vector<DnsRecord> search_in_records(std::string qname, QueryType qtype, std
     return result;
 }
 
-// Performs a lookup on a local file to see if there are any names assigned
+// Performs a lookup on the RECORDS vector for a domain and a type
 DnsPacket local_lookup(std::string qname, QueryType qtype)
 {
     DnsPacket result;
@@ -91,16 +75,16 @@ DnsPacket local_lookup(std::string qname, QueryType qtype)
         std::vector<DnsRecord> records = search_in_records(qname, qtype, RECORDS);
 
         if (records.empty())
-            result.header.rescode = ResultCode::NXDOMAIN;
+            result.header.rescode = ResultCode::NXDOMAIN; // nothing found
         else {
             for (auto &rec : records) 
             {
-                if (qtype == rec.qtype)
+                if (qname == rec.domain && qtype == rec.qtype) // if everything is matching we have an answer
                 {
                     result.answers.push_back(rec);
                     result.header.answers ++;
                 }
-                else
+                else // otherwise there is an NS that we can ask
                 {
                     result.header.authoritative_entries ++;
                     result.authorities.push_back(rec); 
@@ -115,31 +99,38 @@ DnsPacket local_lookup(std::string qname, QueryType qtype)
     return result;
 }
 
-// Sends a DNS question to the specified server 
+// Queryes a DNS server for a specific domain and type
 DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& server_addr)
 {
-    int socket = PassiveSockUDP("43210"); // picking a random port to send the request
-    setSocketTimeout(socket, 5);
-    DnsPacket packet = DnsPacket();
-    
+    // this socket is for listening for responses
+    int socket = passive_sock_udp("43210"); // picking a random port to send the request
+    if (set_socket_timeout(socket, 5) < 0)
+    {
+        std::cout << "Warning: Error when setting socket timeout" << std::endl;
+    }
+
+    DnsPacket packet = DnsPacket(); // the packet that will be sent
+
     try{
         // crafting the header
-        packet.header.id = 6666; // random id
+        packet.header.id = 1234; // random id
         packet.header.questions = 1;
         packet.header.recursion_desired = true;
 
         // crafting the body
         packet.questions.push_back(DnsQuestion(qname, qtype));
 
-        BytePacketBuffer req_buffer = BytePacketBuffer();
- 
-        packet.write(req_buffer);
+        // converting the packet into a buffer
+        BytePacketBuffer request_buffer = BytePacketBuffer(); // request buffer
+        packet.write(request_buffer);
 
-        char req_bytes[req_buffer.getPos()];
-        std::copy(req_buffer.buf.begin(), req_buffer.buf.end(), req_bytes);
+        const size_t request_size = request_buffer.getPos(); // pakcet size
+
+        // char request_bytes[p_size];
+        // std::copy(request_buffer.buf.begin(), request_buffer.buf.end(), request_bytes);
 
         // sending the request
-        ssize_t bytes_sent = sendto(socket, req_bytes, req_buffer.getPos(), 0, (struct sockaddr*) &server_addr, sizeof(server_addr));
+        ssize_t bytes_sent = sendto(socket, request_buffer.buf.data(), request_size, 0, (struct sockaddr*) &server_addr, sizeof(server_addr));
         if (bytes_sent <= 0)
         {
             close(socket);
@@ -147,18 +138,18 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
         }
 
         // receiving response
-        char res_bytes[BytePacketBuffer::packet_size];
-        ssize_t bytes_read = recv(socket, res_bytes, BytePacketBuffer::packet_size, 0); 
+        char response_bytes[BytePacketBuffer::packet_size]; // response goes here
+        ssize_t bytes_read = recv(socket, response_bytes, BytePacketBuffer::packet_size, 0); 
         if (bytes_read <= 0)
         {
             close(socket);
             throw std::runtime_error("Some error occurred when receiving data!\n");
         }
         
-        BytePacketBuffer res_buffer = BytePacketBuffer(res_bytes, bytes_read);
+        BytePacketBuffer response_buffer = BytePacketBuffer(response_bytes, bytes_read);
         
         close(socket);
-        return DnsPacket::from_buffer(res_buffer);
+        return DnsPacket::from_buffer(response_buffer);
 
     }
     catch (std::runtime_error e)
@@ -171,18 +162,10 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
 // Tries to resolve a domain name through recursive lookups
 DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 {
-    IPv4Addr ns = IPv4Addr("127.0.0.1");
+    IPv4Addr ns = IPv4Addr("127.0.0.1"); // first we try a local lookup
 
     while (true)
     {
-
-        IPv4Addr ns_copy = ns;
-
-        struct sockaddr_in server_addr;
-        std::memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(53);
-        inet_pton(AF_INET, ns_copy.to_string().c_str(), &server_addr.sin_addr);
 
         DnsPacket response;
         try {
@@ -193,6 +176,13 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
                 response = local_lookup(qname, qtype);
             }
             else {
+                // connection stuff
+                struct sockaddr_in server_addr;
+                bzero(&server_addr, sizeof(server_addr)); // clearing
+                server_addr.sin_family = AF_INET;
+                server_addr.sin_port = htons(53);
+                inet_pton(AF_INET, ns.to_string().c_str(), &server_addr.sin_addr);
+                
                 std::cout << "Attepmpting ONLINE lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with NS " << ns.to_string() << std::endl;
                 response = lookup(qname, qtype, server_addr);
             }
@@ -205,9 +195,11 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
         
         if (response.header.rescode == ResultCode::NXDOMAIN && ns.to_string() == "127.0.0.1") // no domain found locally
         {
+            // local lookup failed, trying to ask a-root
             ns = AROOT;
             continue;
         }
+
         // success
         if (!response.answers.empty() && response.header.rescode == ResultCode::NOERROR)
             return response;
@@ -215,7 +207,8 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
         // domain not found
         if (response.header.rescode == ResultCode::NXDOMAIN)
             return response;
-
+        
+        // if we are here it means that there are some resources we can check
         IPv4Addr new_ns = response.get_resolved_ns(qname);
         if (new_ns.to_string() != "0.0.0.0"){ // if the ip is 0.0.0.0 it means there are no entries
             ns = new_ns;
@@ -233,20 +226,20 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
         if (new_ns.to_string() != "0.0.0.0") // if the ip is 0.0.0.0 it means there are no entries
             ns = new_ns;
-        else 
+        else
             return response;
     }
 }
 
+// The main function that handles a request
 void handle_query(int socket)
 {
-    // Variable definition
     struct sockaddr_storage source_addr;
     socklen_t source_addrlen = sizeof(source_addr);
-    char req_bytes[BytePacketBuffer::packet_size];
+    char request_bytes[BytePacketBuffer::packet_size];
 
     // Waiting for data
-    ssize_t bytes_read = recvfrom(socket, req_bytes, BytePacketBuffer::packet_size, 0, (struct sockaddr*) &source_addr, &source_addrlen);
+    ssize_t bytes_read = recvfrom(socket, request_bytes, BytePacketBuffer::packet_size, 0, (struct sockaddr*) &source_addr, &source_addrlen);
     if (bytes_read <= 0)
     {
         throw std::runtime_error("An error occured when receiving data! (handle_query)");
@@ -255,12 +248,10 @@ void handle_query(int socket)
     try
     {
         // Processing the data
-        BytePacketBuffer req_buffer = BytePacketBuffer(req_bytes, (size_t) bytes_read);
-        DnsPacket request = DnsPacket::from_buffer(req_buffer);
+        BytePacketBuffer request_buffer = BytePacketBuffer(request_bytes, (size_t) bytes_read);
+        DnsPacket request = DnsPacket::from_buffer(request_buffer);
 
-        // std::cout << "Request received:\n\n" << request.to_string() << std::endl;
-
-        DnsPacket packet;   
+        DnsPacket packet; // response packet
         packet.header.id = request.header.id;
         packet.header.recursion_desired = true;
         packet.header.recursion_available = true;
@@ -284,24 +275,28 @@ void handle_query(int socket)
                 packet.header.rescode = ResultCode::SERVFAIL;
             }
 
+            // building the packet's body
             packet.questions.push_back(question);
 
-            // std::cout << "Answer:\n";
             for (size_t i = 0; i < result.answers.size(); i ++)
             {
-                // std::cout << result.answers[i].to_string() << std::endl;
+                if (i == 0)
+                    std::cout << "Answer:\n";
+                std::cout << result.answers[i].to_string() << std::endl;
                 packet.answers.push_back(result.answers[i]);
             }
-            // std::cout << "Authorities:\n";
             for (size_t i = 0; i < result.authorities.size(); i ++)
             {
-                // std::cout << result.authorities[i].to_string() << std::endl;
+                if (i == 0)
+                    std::cout << "Authorities:\n";
+                std::cout << result.authorities[i].to_string() << std::endl;
                 packet.authorities.push_back(result.authorities[i]);
             }
-            // std::cout << "Resources:\n";
             for (size_t i = 0; i < result.resources.size(); i ++)
             {
-                // std::cout << result.resources[i].to_string() << std::endl;
+                if (i == 0)
+                    std::cout << "Resources:\n";
+                std::cout << result.resources[i].to_string() << std::endl;
                 packet.resources.push_back(result.resources[i]);
             }
         }
@@ -310,16 +305,17 @@ void handle_query(int socket)
         }
 
         // Sending data back
-        BytePacketBuffer res_buffer;
+        BytePacketBuffer response_buffer;
 
-        packet.write(res_buffer);
-        size_t datalen = res_buffer.getPos();
-        char res_bytes[datalen];
-        std::copy(res_buffer.buf.begin(), res_buffer.buf.end(), res_bytes);
+        packet.write(response_buffer);
 
-        ssize_t bytes_sent = sendto(socket, res_bytes, datalen, 0, (struct sockaddr*) &source_addr, source_addrlen);
+        const size_t response_size = response_buffer.getPos();
+        // char response_bytes[datalen];
+        // std::copy(response_buffer.buf.begin(), response_buffer.buf.end(), response_bytes);
 
-        std::cout << "Sending response:\n\n" << packet.answers[0].to_string() << std::endl;
+        ssize_t bytes_sent = sendto(socket, response_buffer.buf.data(), response_size, 0, (struct sockaddr*) &source_addr, source_addrlen);
+
+        std::cout << "Sending response:\n" << packet.answers[0].to_string() << std::endl;
 
         if (bytes_sent <= 0)
         {
@@ -345,14 +341,12 @@ int main(int argc, char** argv)
     RECORDS = records_from_file(RECORD_FILE);
 
     // Start listening
-    int socket = PassiveSockUDP(argv[1]);
+    int socket = passive_sock_udp(argv[1]);
     if (socket < 0){
         return -1;
     }
 
     std::cout << "Listening on 0.0.0.0:" << argv[1] << " ..." << std::endl;
-
-    srand(time(NULL));
 
     while (true)
     {

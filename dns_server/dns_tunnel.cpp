@@ -345,12 +345,20 @@ int handle_connection(int socket)
 	return 0;
 }
 
-int main()
+int main(int argc, char** argv)
 {
-	int socket = PassiveSockUDP("53");
-	std::cout << "Listening on 0.0.0.0:53 ..." << std::endl;
+	if (argc != 2)
+    {
+        std::cout << "Usage: " << argv[0] << " port" << std::endl;
+        return 0;
+    }
 
-	srand(time(NULL));
+	int socket = passive_sock_udp(argv[1]);
+	if (socket < 0)
+	{
+		return -1;
+	}
+	std::cout << "Listening on 0.0.0.0:" << argv[1] << " ..." << std::endl;
 
 	while (true)
 	{
