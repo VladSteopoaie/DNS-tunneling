@@ -196,8 +196,6 @@ struct DnsPacket{
     std::string to_string();
 };
 
-// This is a helper function that takes the first 4 bytes from a string
-uint32_t take_4_bytes(std::string val, int index);
 void get_byte_array_from_string(std::vector<uint8_t> &byte_array, std::string string); 
 void get_string_from_byte_array(std::string &string, std::vector<uint8_t> byte_array);
 

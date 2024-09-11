@@ -1345,20 +1345,7 @@ std::string DnsPacket::to_string() {
 /*---------[ Helper Functions ]---------*/
 /*######################################*/
 
-uint32_t take_4_bytes(std::string val, int index)
-{
-    int real_index = index * 4;
-    uint32_t result = 0;
-
-    for (int i = 0; i < 4; i ++)
-    {
-        if ((char) val[real_index + i] != '\n')  
-            result = (char) val[real_index] << 8 * (3 - i);
-    }
-
-    return result;
-}
-
+// Conversion funtions
 void get_byte_array_from_string(std::vector<uint8_t> &byte_array, std::string string)
 {
     byte_array.resize(0);

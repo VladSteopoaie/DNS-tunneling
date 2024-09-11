@@ -26,10 +26,18 @@ int str_to_sock_type(const char* str);
     @param socket the socket to set the timeout
     @param timeout the time specified in seconds
 
-    @return SOCK_STREAM, SOCK_DGRAM on success if tcp or udp is provided as 
-        argument and -1 on error and a message is printed on stderr.
+    @return 0 on success, -1 on failure.
 */
 int set_socket_timeout(int socket, int timeout);
+
+/**
+    @brief Clears a socket's timeout.
+
+    @param socket the socket to set the timeout
+
+    @return 0 on success, -1 on failure.
+*/
+int clear_socket_timeout(int socket);
 
 /**
     @brief Creates a connection socket of type 'transport', using 

@@ -21,19 +21,34 @@ int set_socket_timeout(int socket, int _timeout)
 
 	if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
 	{
-		// std::cerr << "Error setting receive timeout: " << strerror(errno) << std::endl;
         return -1;
     }
 
 	if (setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0)
 	{
-		// std::cerr << "Error setting send timeout: " << strerror(errno) << std::endl;
         return -1;
     }
 
     return 0;
 }
 
+int clear_socket_timeout(int socket)
+{
+	struct timeval timeout;
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+
+	if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+        return -1;
+    }
+
+	if (setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0)
+	{
+        return -1;
+    }
+    return 0;
+}
 
 int connect_sock(const char *host, const char *service, const char *transport)
 {
