@@ -1,7 +1,7 @@
-dns/bin
-dns/build
+dns
 dns_server/bin
 dns_server/build
 remote/bin
 remote/build
 .clangd
+.venv

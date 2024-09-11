@@ -71,37 +71,39 @@ std::vector<DnsRecord> search_in_records(std::string qname, QueryType qtype, std
 DnsPacket local_lookup(std::string qname, QueryType qtype)
 {
     DnsPacket result;
-    try{
-        std::vector<DnsRecord> records = search_in_records(qname, qtype, RECORDS);
+    std::vector<DnsRecord> records = search_in_records(qname, qtype, RECORDS);
 
-        if (records.empty())
-            result.header.rescode = ResultCode::NXDOMAIN; // nothing found
-        else {
-            for (auto &rec : records) 
+    if (records.empty())
+        result.header.rescode = ResultCode::NXDOMAIN; // nothing found
+    else {
+        for (auto &rec : records) 
+        {
+            if (qname == rec.domain && qtype == rec.qtype) // if everything is matching we have an answer
             {
-                if (qname == rec.domain && qtype == rec.qtype) // if everything is matching we have an answer
-                {
-                    result.answers.push_back(rec);
-                    result.header.answers ++;
-                }
-                else // otherwise there is an NS that we can ask
-                {
-                    result.header.authoritative_entries ++;
-                    result.authorities.push_back(rec); 
-                }
+                result.answers.push_back(rec);
+                result.header.answers ++;
+            }
+            else // otherwise there is an NS that we can ask
+            {
+                result.header.authoritative_entries ++;
+                result.authorities.push_back(rec); 
             }
         }
     }
-    catch (std::runtime_error e){
-        std::cout << e.what() << std::endl;
-        result.header.rescode = ResultCode::NXDOMAIN;
-    }
+
     return result;
 }
 
 // Queryes a DNS server for a specific domain and type
-DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& server_addr)
+DnsPacket lookup(std::string qname, QueryType qtype, IPv4Addr ns)
 {
+    // connection stuff
+    struct sockaddr_in server_addr;
+    bzero(&server_addr, sizeof(server_addr)); // clearing
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(53);
+    inet_pton(AF_INET, ns.to_string().c_str(), &server_addr.sin_addr);
+    
     // this socket is for listening for responses
     int socket = passive_sock_udp("43210"); // picking a random port to send the request
     if (set_socket_timeout(socket, 5) < 0)
@@ -163,28 +165,21 @@ DnsPacket lookup(std::string qname, QueryType qtype, const struct sockaddr_in& s
 DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 {
     IPv4Addr ns = IPv4Addr("127.0.0.1"); // first we try a local lookup
+    DnsPacket response;
 
     while (true)
     {
 
-        DnsPacket response;
         try {
             
             if (ns.to_string() == "127.0.0.1") {
-                // first perform a local lookup to see if there is a local domain assigne d
+                // first perform a local lookup to see if there is a local domain assigned
                 std::cout << "Attepmpting LOCAL lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << std::endl;
                 response = local_lookup(qname, qtype);
             }
             else {
-                // connection stuff
-                struct sockaddr_in server_addr;
-                bzero(&server_addr, sizeof(server_addr)); // clearing
-                server_addr.sin_family = AF_INET;
-                server_addr.sin_port = htons(53);
-                inet_pton(AF_INET, ns.to_string().c_str(), &server_addr.sin_addr);
-                
                 std::cout << "Attepmpting ONLINE lookup of " << QueryTypeFunc::to_string(qtype) << " " << qname << " with NS " << ns.to_string() << std::endl;
-                response = lookup(qname, qtype, server_addr);
+                response = lookup(qname, qtype, ns);
             }
             
         }
@@ -278,6 +273,7 @@ void handle_query(int socket)
             // building the packet's body
             packet.questions.push_back(question);
 
+            std::cout << "Response packet:" << std::endl;
             for (size_t i = 0; i < result.answers.size(); i ++)
             {
                 if (i == 0)
@@ -314,8 +310,6 @@ void handle_query(int socket)
         // std::copy(response_buffer.buf.begin(), response_buffer.buf.end(), response_bytes);
 
         ssize_t bytes_sent = sendto(socket, response_buffer.buf.data(), response_size, 0, (struct sockaddr*) &source_addr, source_addrlen);
-
-        std::cout << "Sending response:\n" << packet.answers[0].to_string() << std::endl;
 
         if (bytes_sent <= 0)
         {

@@ -10,6 +10,10 @@ RUN .venv/bin/pip3 install scapy loguru
 
 WORKDIR /
 RUN mkdir -p /scripts/modules
+RUN mkdir -p /etc/tunnel
+
 COPY remote /scripts/
 COPY dns_server/modules /scripts/modules/
+COPY remote/data /etc/tunnel/
+
 RUN dos2unix /scripts/setup.sh

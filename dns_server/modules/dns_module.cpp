@@ -926,13 +926,11 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 
                 const size_t chunk_size = 255;
                 std::vector<uint8_t> txt_value;
-                std::cout << "Data len: " << data_len << std::endl;
                 for (int i = 0; i < data_len; i ++)
                 {
                     if (i == 0) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
-                        std::cout << "1. Chunk len: " << chunk_len << std::endl;
                         if (chunk_len + 1 != data_len && chunk_len != chunk_size)
                             throw std::runtime_error("TXT data length different from first chunk lengths!");
                         continue;
@@ -941,7 +939,6 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                     if (i == 256) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
-                        std::cout << "2. Chunk len: " << chunk_len << std::endl;
                         if (chunk_len + chunk_size + 2 != data_len)
                             throw std::runtime_error("TXT data length different from second chunk lengths!");
                         continue;
