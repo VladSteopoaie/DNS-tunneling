@@ -179,15 +179,16 @@ std::string IPv4Addr::to_string() const
 
 IPv6Addr::IPv6Addr(std::vector<uint8_t> bytes)
 {
-    for (int i = 0; i < bytes.size(); i += 2)
-    {
-        this->bytes[i / 2] = (bytes[i] << 8) + bytes[i + 1]; 
-    }
+    this->bytes = bytes;
 }
 
 IPv6Addr::IPv6Addr(std::vector<uint16_t> bytes)
 {
-    this->bytes = bytes;
+    for (int i = 0; i < bytes.size(); i += 2)
+    {
+        this->bytes[i * 2] = bytes[i] >> 8; 
+        this->bytes[i * 2 + 1] = bytes[i] & 0xF; 
+    }
 }
 
 IPv6Addr::IPv6Addr(std::string str)
@@ -195,10 +196,11 @@ IPv6Addr::IPv6Addr(std::string str)
     std::stringstream ss(str);
     ss << std::hex << std::setfill('0');
 
-    uint16_t byte;
+    uint16_t word; // 2 bytes = 1 word
     int i = 0;
-    while (ss >> std::setw(4) >> byte) {
-        bytes[i] = byte;
+    while (ss >> std::setw(4) >> word) {
+        bytes[i * 2] = word >> 8;
+        bytes[i * 2 + 1] = word & 0xF;
         if (ss.peek() == ':') {
             ss.ignore();
         }
@@ -215,7 +217,7 @@ std::string IPv6Addr::to_string() const
     ss << std::hex << std::setfill('0');
 
     for (int i = 0; i < 8; ++i) {
-        ss << std::setw(4) << static_cast<unsigned>(bytes[i]);
+        ss << std::setw(4) << static_cast<unsigned>((bytes[i * 2] << 8) + bytes[i * 2 + 1]);
         if (i < 7) {
             ss << ":";
         }
@@ -1267,19 +1269,19 @@ std::vector<std::pair<std::string, std::string>> DnsPacket::get_ns(std::string q
 
     for (auto rec : authorities)
     {
-        bool okEnding;
+        bool ok_ending;
         if (rec.domain.length() > qname.length())
             continue;
         else if (rec.domain.length() == qname.length())
-            okEnding = qname.compare(rec.domain) == 0;
+            ok_ending = qname.compare(rec.domain) == 0;
         else 
-            okEnding = qname.compare(
+            ok_ending = qname.compare(
                 qname.length() - rec.domain.length(), 
                 rec.domain.length(),
                 rec.domain.c_str()
                 ) == 0;
 
-        if (rec.qtype == QueryType::NS && okEnding){
+        if (rec.qtype == QueryType::NS && ok_ending){
             std::string string_from_bytes;
             get_string_from_byte_array(string_from_bytes, rec.value);
             result.push_back({rec.domain, string_from_bytes});
@@ -1309,9 +1311,9 @@ std::vector<std::string> DnsPacket::get_unresolved_ns(std::string qname)
     std::vector<std::string> result;
     std::vector<std::pair<std::string, std::string>> nses = get_ns(qname);
 
-    for (auto& x : nses)
+    for (auto& ns : nses)
     {
-        result.push_back(x.second);
+        result.push_back(ns.second);
     }
 
     return result;

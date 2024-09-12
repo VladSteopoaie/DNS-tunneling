@@ -18,7 +18,7 @@ std::vector<DnsRecord> records_from_file(const char* file)
 
     // opening the file
     std::ifstream fin(file);
-    char reader[500]; // a buffer to read into
+    std::string reader; // a buffer to read into
     if (!fin.is_open())
     {
         throw std::runtime_error("Could not open records file!");
@@ -30,16 +30,26 @@ std::vector<DnsRecord> records_from_file(const char* file)
         fin >> reader; // class
         fin >> reader; // qtype
         record.qtype = QueryTypeFunc::from_string(reader);
-
-        fin.getline(reader, sizeof(reader)-1); // data
-        get_byte_array_from_string(record.value, reader);
-
-        // trim white spces
-        record.value.erase(record.value.begin(), std::find_if(record.value.begin(), record.value.end(), [](unsigned char ch) {
+        std::getline(fin, reader); // data
+        // erasing white spaces
+        reader.erase(reader.begin(), std::find_if(reader.begin(), reader.end(), [](char ch) {
             return !std::isspace(ch);
         }));
 
-        record.ttl = 300;
+        // add the data to the record
+        if (record.qtype == QueryType::A)
+        {
+            record.value = IPv4Addr(reader).bytes;
+        }
+        else if (record.qtype == QueryType::AAAA)
+        {
+            record.value = IPv6Addr(reader).bytes;
+        }
+        else {
+            get_byte_array_from_string(record.value, reader);
+        }
+
+        record.ttl = 300; // hard coded ttl
         result.push_back(record);
     }
 
@@ -156,6 +166,7 @@ DnsPacket lookup(std::string qname, QueryType qtype, IPv4Addr ns)
     }
     catch (std::runtime_error e)
     {
+        perror("lookup: ");
         close(socket);
         throw e;
     }

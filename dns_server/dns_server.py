@@ -3,11 +3,12 @@ from scapy.all import *
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.inet import IP, UDP
 import sys
+import random
 from loguru import logger as logging
 from modules import dns_module
 
 PACKET_SIZE = 1024
-AROOT = "194.41.0.4" # a.root-servers.net
+AROOT = "198.41.0.4" # a.root-servers.net
 RECORDS = list()
 RECORDS_FILE = "./modules/dns_records.txt"
 
@@ -29,7 +30,7 @@ def records_from_file(file):
         for line in f.readlines():
             tokens = line.split() # dns record: ns.mydomain.top IN A 10.8.8.16
                                   # tokens: [domain, class, type, data]
-            result.append(DNSRR(rrname=tokens[0], rclass=1, type=dns_module.type_number_from_string(tokens[2]), rdata=tokens[3]))
+            result.append(DNSRR(rrname=tokens[0], rclass=1, type=dns_module.type_number_from_string(tokens[2]), rdata=tokens[3], ttl=300))
 
     return result
 
@@ -52,19 +53,40 @@ def search_in_records(qname, qtype, records):
 
 # Performs a lookup on the RECORDS vector for a domain and a type
 def local_lookup(qname, qtype):
-    result = DNS(ancount=0, nscount=0, an=[], ns=[])
-    records = search_in_records(qname, qtype, RECORDS)
+    result = DNS(ancount=0, nscount=0, arcount=0)
+    result.rcode = dns_module.response_code_to_number("NOERROR")  # Default to NOERROR
 
-    if len(records) == 0:
-        result.rcode = dns_module.response_code_to_number("NXDOMAIN")
-    else:
-        for record in records:
-            if qname == record.rrname.decode() and qtype == record.type: # if everything is matching we have an answer
-                result.an.append(record)
-                result.ancount += 1
-            else: # otherwise there is an NS that we can ask
-                result.ns.append(record)
+    # Process records
+    for record in RECORDS:
+        rrname = record.rrname.decode()
+        rtype = record.type
+
+        if qname == rrname and qtype == rtype:
+            # Record matches query
+            if result.ancount == 0:
+                result.an = record
+            else:
+                result.an = result.an / record
+            result.ancount += 1
+        else:
+            # Process NS or other records
+            if rtype == 2:  # Assuming type 2 is NS
+                if result.nscount == 0:
+                    result.ns = record
+                else:
+                    result.ns = result.ns / record
                 result.nscount += 1
+            elif rtype == 1:  # Assuming type 1 is A record
+                if result.arcount == 0:
+                    result.ar = record
+                else:
+                    result.ar = result.ar / record
+                result.arcount += 1
+
+    # If no answers, set NXDOMAIN
+    if result.ancount == 0:
+        result.rcode = dns_module.response_code_to_number("NXDOMAIN")
+
     return result
 
 # Queryes a DNS server for a specific domain and type
@@ -94,8 +116,8 @@ def recursive_lookup(qname, qtype):
     ns = "127.0.0.1" # first we try a local lookup
     response = None
 
-    while True:
-        try:
+    try:
+        while True:
             if ns == "127.0.0.1":
                 # first perform a local lookup to see if there is a local domain assigned
                 logging.info(f"Attempting LOCAL lookup of {dns_module.type_number_to_string(qtype)} {qname}")
@@ -103,50 +125,47 @@ def recursive_lookup(qname, qtype):
             else:
                 logging.info(f"Attempting ONLINE lookup of {dns_module.type_number_to_string(qtype)} {qname} with NS {ns}")
                 response = lookup(qname, qtype, ns)
-        except RuntimeError as e:
-            logging.error(f"recursive_lookup error: {e}")
-            raise e 
 
-        if response.rcode == 3 and ns == "127.0.0.1": # no domain found locally
-            ns = AROOT
-            continue
-        
-        # success
-        if response and response.rcode == 0 and response.ancount > 0:
-            return response
+            if response.rcode == 3 and ns == "127.0.0.1": # no domain found locally
+                ns = AROOT
+                continue
+            
+            # success
+            if response and response.rcode == 0 and response.ancount > 0:
+                return response
 
-        # domain not found
-        if response.rcode == 3:  # NXDOMAIN
-            return response
-        
-        # if we are here it means that there are some resources we can check
-        new_ns = None
-        for rr in response.ns: # looping through authorities records
-            if rr.type == 2: # NS record
-                new_ns = rr.rdata.decode()
+            # domain not found
+            if response.rcode == 3:  # NXDOMAIN
+                return response
+            
+            # if we are here it means that there are some resources we can check
+            new_ns = None
+            new_ns = dns_module.get_resolved_ns(response, qname)
+
+            if new_ns:
+                ns = new_ns 
+                continue 
+            
+            new_ns_names = dns_module.get_unresolved_ns(response, qname)
+            if (len(new_ns_names) == 0):
                 break
-        
-        if new_ns:
-            # the dns packet might contain the addres of the NS already
-            additional_ip = None
-            for rr in response.ar: # looping through additional records
-                if rr.type == 1 and new_ns == rr.rrname: # A record
-                    additional_ip = rr.rdata
-                    break
 
-            if additional_ip:
-                ns = additional_ip
+            recursive_response = recursive_lookup(new_ns_names[random.randint(0, len(new_ns_names) - 1)], 1) # trying to resolve the first unresolved ns
+
+            if recursive_response.ancount == 0:
+                break 
             else:
-                # if the dns packet does not contain the address of the NS we can find it by searching recursively
-                try:
-                    new_response = recursive_lookup(new_ns, dns_module.type_number_from_string('A'))
-                    if new_response.ancount > 0:
-                        ns = new_response.an[0].rdata.decode()
-                except RuntimeError as e:
-                    logging.error(f"recursive_lookup error: {e}")
-                    raise e
-        else:
-            break
+                ns = recursive_response.an[0].rdata
+            
+    except RuntimeError as e:
+        logging.error(f"recursive_lookup error: {e}")
+        raise e 
+    except AttributeError as e:
+        logging.error(f"recursive_lookup error: {e}")
+        raise e 
+    except Exception as e:
+        logging.error(f"recursive_lookup error: {e}")
+        raise e 
 
     return response
 
@@ -160,9 +179,9 @@ def handle_query(sock):
         qname = request.qd.qname.decode()
         qtype = request.qd.qtype
 
-        logging.info(f"Received query for {qname} type {qtype}")
+        logging.info(f"Received query for {qname} type {dns_module.type_number_to_string(qtype)}")
 
-        response = DNS(id=request.id, qr=1, rd=request.rd, ra=1, qd=request.qd)
+        response = DNS(id=request.id, qr=1, rd=request.rd, ra=1, qd=request.qd, qdcount=request.qdcount)
 
         try:
             result = recursive_lookup(qname, qtype)
@@ -173,11 +192,14 @@ def handle_query(sock):
             response.an = result.an
             response.ns = result.ns
             response.ar = result.ar
-            response.show()
-            sock.sendto(bytes(response), addr)
         except RuntimeError as e:
             response.rcode = 2  # SERVFAIL
-            
+        except AttributeError as e:
+            response.rcode = 2  # SERVFAIL
+        except Exception as e:
+            response.rcode = 2  # SERVFAIL
+    
+    sock.sendto(bytes(response), addr)
 
     logging.info("Query handeled!")
     
@@ -188,8 +210,6 @@ if __name__ == "__main__":
         sys.exit(0)
 
     RECORDS = records_from_file(RECORDS_FILE)
-    for rec in RECORDS:
-        rec.show()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:

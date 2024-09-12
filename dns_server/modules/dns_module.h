@@ -48,7 +48,7 @@ namespace ResultCodeFunc{
     ResultCode from_num (int n);
 }
 
-// Structs to represent IPv4 and IPv6
+// Structs for IPv4 and IPv6
 
 struct IPv4Addr{
     std::vector<uint8_t> bytes = std::vector<uint8_t>(4); // each byte from the IP address
@@ -61,7 +61,7 @@ struct IPv4Addr{
 };
 
 struct IPv6Addr {
-    std::vector<uint16_t> bytes = std::vector<uint16_t>(8); // each byte from the IP address
+    std::vector<uint8_t> bytes = std::vector<uint8_t>(16); // each byte from the IP address
 
     // normally IPv6 parsing is more complex than this, this is only for my
     // dns server to manage IPv6 in case it receives an AAAA record
