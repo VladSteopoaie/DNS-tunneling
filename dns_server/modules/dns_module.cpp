@@ -841,8 +841,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 char ns[1024];
                 buffer.read_qname(ns);
                 
-                std::vector<uint8_t> ns_bytes;
-                get_byte_array_from_string(ns_bytes, ns);
+                std::vector<uint8_t> ns_bytes = get_byte_array_from_string(ns);
 
                 record = DnsRecord(domain, qtype, ns_bytes, ttl);
                 break;
@@ -862,8 +861,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 char cname[1024];
                 buffer.read_qname(cname);
 
-                std::vector<uint8_t> cname_bytes;
-                get_byte_array_from_string(cname_bytes, cname);
+                std::vector<uint8_t> cname_bytes = get_byte_array_from_string(cname);
                 record = DnsRecord(domain, qtype, cname_bytes, ttl);
                 break;
             }
@@ -887,8 +885,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 buffer.read_qname(mx);
 
                 std::string mx_value = std::to_string(priority) + ", " + mx;
-                std::vector<uint8_t> mx_bytes;
-                get_byte_array_from_string(mx_bytes, mx_value);                
+                std::vector<uint8_t> mx_bytes = get_byte_array_from_string(mx_value);                
                 record = DnsRecord(domain, qtype, mx_bytes, ttl);
                 break;
             }
@@ -958,8 +955,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                 char *default_value = (char*) buffer.get_range(buffer.getPos(), data_len);
                 buffer.step(data_len);
 
-                std::vector<uint8_t> default_bytes;
-                get_byte_array_from_string(default_bytes, default_value);
+                std::vector<uint8_t> default_bytes = get_byte_array_from_string(default_value);
 
                 record = DnsRecord(domain, qtype, default_bytes, ttl);
                 delete[] default_value;
@@ -1012,8 +1008,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0); // the real length will be set after the domain is written
                 
                 // NS specific
-                std::string ns_name;
-                get_string_from_byte_array(ns_name, value);
+                std::string ns_name = get_string_from_byte_array(value);
                 buffer.write_qname(ns_name.c_str());
 
                 size_t size = buffer.getPos() - (pos + 2);
@@ -1033,8 +1028,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0);
                 
                 // CNAME specific
-                std::string cname;
-                get_string_from_byte_array(cname, value);
+                std::string cname = get_string_from_byte_array(value);
                 buffer.write_qname(cname.c_str());
 
                 // setting data_len
@@ -1054,8 +1048,7 @@ size_t DnsRecord::write(BytePacketBuffer &buffer)
                 buffer.write_u16(0);
 
                 // MX specific
-                std::string mx_name;
-                get_string_from_byte_array(mx_name, value);
+                std::string mx_name = get_string_from_byte_array(value);
                 size_t delim_pos = mx_name.find(", ");
                 std::string priority = mx_name.substr(0, delim_pos);
                 std::string host = mx_name.substr(delim_pos + 2);
@@ -1155,8 +1148,7 @@ std::string DnsRecord::to_string()
         }
         default:
         {
-            std::string str_value;
-            get_string_from_byte_array(str_value, value);
+            std::string str_value = get_string_from_byte_array(value);
             s += str_value;
             break;
         }
@@ -1245,16 +1237,11 @@ void DnsPacket::write(BytePacketBuffer &buffer)
 
 IPv4Addr DnsPacket::get_random_a()
 {
-    std::vector<std::string> a_answers;
-
+    std::vector<IPv4Addr> a_answers;
     for (auto rec : answers)
     {
         if (rec.qtype == QueryType::A)
-        {
-            std::string string_from_bytes;
-            get_string_from_byte_array(string_from_bytes, rec.value);
-            a_answers.push_back(string_from_bytes);
-        }
+            a_answers.push_back(IPv4Addr(rec.value));
     }
 
     if (!a_answers.empty())
@@ -1282,8 +1269,7 @@ std::vector<std::pair<std::string, std::string>> DnsPacket::get_ns(std::string q
                 ) == 0;
 
         if (rec.qtype == QueryType::NS && ok_ending){
-            std::string string_from_bytes;
-            get_string_from_byte_array(string_from_bytes, rec.value);
+            std::string string_from_bytes = get_string_from_byte_array(rec.value);
             result.push_back({rec.domain, string_from_bytes});
         }
     }
@@ -1345,16 +1331,21 @@ std::string DnsPacket::to_string() {
 /*######################################*/
 
 // Conversion funtions
-void get_byte_array_from_string(std::vector<uint8_t> &byte_array, std::string string)
+std::vector<uint8_t> get_byte_array_from_string(std::string string)
 {
-    byte_array.resize(0);
+    std::vector<uint8_t> byte_array = std::vector<uint8_t>(0);
     for (int i = 0; i < string.size(); i ++)
         byte_array.push_back(string[i]);
+    return byte_array;
 }
 
-void get_string_from_byte_array(std::string &string, std::vector<uint8_t> byte_array)
+std::string get_string_from_byte_array(std::vector<uint8_t> byte_array)
 {
-    string.resize(byte_array.size());
-    for (int i = 0; i < byte_array.size(); i ++)
-        string[i] = byte_array[i];
+    std::string result(byte_array.size(), '\0');
+
+    for (int i = 0; i < byte_array.size(); i ++){
+        result[i] = byte_array[i];
+        // std::cout << byte_array[i] << " " << string << std::endl;
+    }
+    return result;
 }

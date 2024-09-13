@@ -46,7 +46,8 @@ std::vector<DnsRecord> records_from_file(const char* file)
             record.value = IPv6Addr(reader).bytes;
         }
         else {
-            get_byte_array_from_string(record.value, reader);
+            record.value.clear();
+            record.value = get_byte_array_from_string(reader);
         }
 
         record.ttl = 300; // hard coded ttl
@@ -227,9 +228,9 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
         // trying to get the ip of the unresolved ns
         DnsPacket recursive_response = recursive_lookup(new_ns_names.front(), QueryType::A);
+        // std::cout << "response: " << recursive_response.to_string() << std::endl;
 
         new_ns = recursive_response.get_random_a();
-
         if (new_ns.to_string() != "0.0.0.0") // if the ip is 0.0.0.0 it means there are no entries
             ns = new_ns;
         else

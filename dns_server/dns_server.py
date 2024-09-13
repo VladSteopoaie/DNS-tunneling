@@ -55,9 +55,10 @@ def search_in_records(qname, qtype, records):
 def local_lookup(qname, qtype):
     result = DNS(ancount=0, nscount=0, arcount=0)
     result.rcode = dns_module.response_code_to_number("NOERROR")  # Default to NOERROR
+    records = search_in_records(qname, qtype, RECORDS)
 
     # Process records
-    for record in RECORDS:
+    for record in records:
         rrname = record.rrname.decode()
         rtype = record.type
 
@@ -84,7 +85,7 @@ def local_lookup(qname, qtype):
                 result.arcount += 1
 
     # If no answers, set NXDOMAIN
-    if result.ancount == 0:
+    if result.ancount == 0 and result.nscount == 0:
         result.rcode = dns_module.response_code_to_number("NXDOMAIN")
 
     return result
@@ -155,7 +156,7 @@ def recursive_lookup(qname, qtype):
             if recursive_response.ancount == 0:
                 break 
             else:
-                ns = recursive_response.an[0].rdata
+                ns = recursive_response.an.rdata
             
     except RuntimeError as e:
         logging.error(f"recursive_lookup error: {e}")

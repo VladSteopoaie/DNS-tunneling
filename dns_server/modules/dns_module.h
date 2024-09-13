@@ -196,8 +196,8 @@ struct DnsPacket{
     std::string to_string();
 };
 
-void get_byte_array_from_string(std::vector<uint8_t> &byte_array, std::string string); 
-void get_string_from_byte_array(std::string &string, std::vector<uint8_t> byte_array);
+std::vector<uint8_t> get_byte_array_from_string(std::string string); 
+std::string get_string_from_byte_array(std::vector<uint8_t> byte_array);
 
 
 #endif 

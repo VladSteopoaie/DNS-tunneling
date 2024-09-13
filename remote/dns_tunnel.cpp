@@ -9,7 +9,7 @@
 #include <fstream>
 
 #define DOMAIN "tunnel.mydomain.top."
-#define DOMAIN_LEN 3 // there are 3 strings that are separated by "." in the above string
+#define DOMAIN_LEN 3 // 3 tokens for the domain as it is (tunnel, mydomain and top)
 #define READING_SIZE 300
 #define RESOURCES_DIR "/etc/tunnel/"
 
@@ -26,11 +26,11 @@ std::vector<std::string> split(const std::string str, char delimiter)
 	return tokens;
 }
 
-// Parses a specialy crafted domain and returns the important data (the id, the data)
-// request fomat: (data).(id).(stream_type).(domain)
+// Parses a specialy crafted domain and returns the important data (the stream id, the data)
+// request fomat: (data).(stream id).(stream type).(domain)
 // data -> it can be a file name encoded in base32 or a number
-// id -> the id of the tunnel given by the client
-// stream_type -> "up" for (client -> server), "down" for (server -> client)
+// stream id -> the id of the stream given by the client
+// stream type -> "up" for (client -> server), "down" for (server -> client)
 // domain -> the domain of the nameserver
 std::pair<int, std::string> parse_qname(std::string qname, bool decode = true)
 {
@@ -126,18 +126,20 @@ int handle_connection(int socket)
 		packet.header.recursion_available = false;
 		packet.header.response = true;
 
-		DnsQuestion question = request.questions.front();
+		DnsQuestion request_question = request.questions.front();
 		std::cout << "Received query:\n"
-				  << question.to_string() << std::endl;
+				  << request_question.to_string() << std::endl;
 
 		// we need to know what kind of request we have
 		// first -> id
 		// second -> data
-		std::pair<int, std::string> request_info = parse_qname(question.name);
+		std::pair<int, std::string> request_info = parse_qname(request_question.name);
+		int stream_id = request_info.first;
+		std::string file_name = request_info.second;
 
-		if (request_info.first <= 0)
+		if (stream_id <= 0)
 		{
-			std::cout << "Id is <= 0!" << std::endl;
+			std::cout << "Stream id is <= 0!" << std::endl;
 			return 1;
 		}
 
@@ -145,23 +147,22 @@ int handle_connection(int socket)
 		// Acknowledgement example: n.3333.down.nsserver.com (where n is the
 		// number of packets that we have to send back to complete a file transfer)
 
-		std::ifstream file(RESOURCES_DIR + request_info.second, std::ios::binary); // opening the file requested by the client
+		std::ifstream file(RESOURCES_DIR + file_name, std::ios::binary); // opening the file requested by the client
 
 		if (!file.is_open()) // the file requested cannot be accessed
 		{
-			packet.questions.push_back(question);
+			packet.questions.push_back(request_question);
 
 			// file not found, sending the packet with n == 0
-			std::vector<uint8_t> ack;
-			get_byte_array_from_string(ack, "0." + std::to_string(request_info.first) + ".down." + DOMAIN);
-			packet.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
+			std::vector<uint8_t> ack = get_byte_array_from_string("0." + std::to_string(stream_id) + ".down." + DOMAIN);
+			packet.answers.push_back(DnsRecord(request_question.name, QueryType::CNAME, ack, 300));
 			packet.header.answers = 1;
 			packet.write(response_buffer);
 			int r = SendData(socket, response_buffer, (struct sockaddr *)&source_addr, source_addrlen);
 
 			if (r == 0)
 			{
-				std::cout << "File " + request_info.second + " not found!" << std::endl;
+				std::cout << "File " + file_name + " not found!" << std::endl;
 				return 0;
 			}
 			else
@@ -182,12 +183,11 @@ int handle_connection(int socket)
 
 		DnsPacket last_sent = packet; // by knowing the last packet we sent we can make the server more robust
 									  // if the connection is interupted we can resent the packet untill it's received
-		last_sent.questions.push_back(question);
+		last_sent.questions.push_back(request_question);
 		
 		// sending the confirmation + number of packets to expect
-		std::vector<uint8_t> ack;
-		get_byte_array_from_string(ack, std::to_string(num_packets) + "." + std::to_string(request_info.first) + ".down." + DOMAIN);
-		last_sent.answers.push_back(DnsRecord(question.name, QueryType::CNAME, ack, 300));
+		std::vector<uint8_t> ack = get_byte_array_from_string(std::to_string(num_packets) + "." + std::to_string(stream_id) + ".down." + DOMAIN);
+		last_sent.answers.push_back(DnsRecord(request_question.name, QueryType::CNAME, ack, 300));
 		last_sent.header.answers = 1;
 		last_sent.write(response_buffer);
 		int r = SendData(socket, response_buffer, (struct sockaddr *)&source_addr, source_addrlen);
@@ -244,15 +244,16 @@ int handle_connection(int socket)
 					  << question.to_string() << std::endl;
 
 			std::pair<int, std::string> info = parse_qname(question.name, false);
-			int id = info.first;
+			int stream_id_local = info.first;
 			int packet_number = atoi(info.second.c_str());
 
-			if (request_info.first != id)
+			if (stream_id != stream_id_local)
 			{
 				std::cout << "Error: wrong id!" << std::endl;
 				resend = true;
 				continue;
 			}
+			
 			if (packet_number == 0)
 			{
 				std::cout << "Packet number is 0!" << std::endl;
@@ -285,9 +286,9 @@ int handle_connection(int socket)
 
 			last_sent = packet;
 			last_sent.questions.push_back(question);
-
-			std::vector<uint8_t> bytes_from_string; // this will be used to store the string into a dns record
-			get_byte_array_from_string(bytes_from_string, base64_encode(buffer)); // we also want to encode the content in base64
+			
+			// this will be used to store the string into a dns record
+			std::vector<uint8_t> bytes_from_string = get_byte_array_from_string(base64_encode(buffer)); // we also want to encode the content in base64
 
 			last_sent.answers.push_back(DnsRecord(question.name, QueryType::TXT, bytes_from_string, 300));
 			last_sent.header.answers = 1;
@@ -325,18 +326,13 @@ int handle_connection(int socket)
 
 int main(int argc, char** argv)
 {
-	if (argc != 2)
-    {
-        std::cout << "Usage: " << argv[0] << " port" << std::endl;
-        return 0;
-    }
 
-	int socket = passive_sock_udp(argv[1]);
+	int socket = passive_sock_udp("53"); // DNS port 53
 	if (socket < 0)
 	{
 		return -1;
 	}
-	std::cout << "Listening on 0.0.0.0:" << argv[1] << " ..." << std::endl;
+	std::cout << "Listening on 0.0.0.0:53 ..." << std::endl;
 
 	while (true)
 	{

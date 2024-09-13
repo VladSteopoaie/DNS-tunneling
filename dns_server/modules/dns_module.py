@@ -48,32 +48,31 @@ def response_code_to_number(string):
 
 def get_ns(packet, qname):
     result = list()
-
-    for record in packet.ns:
-        domain = record.rrname.decode()
-        ok_ending = False
-        if (len(domain) > len(qname)):
-            continue 
-        elif len(domain) == len(qname):
-            ok_ending = (domain == qname)
-        else:
-            ok_ending = (qname[-len(domain):] == domain)
-        
-        if record.type == 2 and ok_ending:
-            result.append((domain, record.rdata.decode()))
+    if packet.nscount > 0:
+        for record in packet.ns:
+            domain = record.rrname.decode()
+            ok_ending = False
+            if (len(domain) > len(qname)):
+                continue 
+            elif len(domain) == len(qname):
+                ok_ending = (domain == qname)
+            else:
+                ok_ending = (qname[-len(domain):] == domain)
+            
+            if record.type == 2 and ok_ending:
+                result.append((domain, record.rdata.decode()))
 
     return result
 
 def get_resolved_ns(packet, qname):
     nses = get_ns(packet, qname)
-    # print(nses)
-    for record in packet.ar:
-        domain = record.rrname.decode()
-        # print(domain)
-        ok_domain = domain in [ns[1] for ns in nses]
+    if packet.arcount > 0:
+        for record in packet.ar:
+            domain = record.rrname.decode()
+            ok_domain = domain in [ns[1] for ns in nses]
 
-        if record.type == 1 and ok_domain:
-            return record.rdata 
+            if record.type == 1 and ok_domain:
+                return record.rdata 
     return None
 
 def get_unresolved_ns(packet, qname):
