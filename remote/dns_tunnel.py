@@ -9,7 +9,8 @@ DOMAIN = "tunnel.mydomain.top."
 DOMAIN_LEN = 3 # 3 tokens for the domain as it is (tunnel, mydomain and top)
 DNS_PORT = 53
 RESOURCES_DIR = "/etc/tunnel/"
-READING_SIZE = 300
+READING_SIZE = 300 # the TXT size on the server is 400 bytes, since we are encoding the text with base64
+				   # for each 3 bytes of data we get 4 bytes of encoded data
 PACKET_SIZE = 1024
 
 # loguru configurations
@@ -77,15 +78,17 @@ def receive_data(sock):
         return None, None
 
 def handle_connection(sock):
+    # receiving data
     sock.settimeout(None)
     request, source_addr = receive_data(sock)
     if request is None:
         logging.warning("No request was received!")
         return -1
 
+    # building the response packet
     response = DNS(id=request.id, qr=1, aa=0, rd=0, ra=0, qdcount=1)
 
-    if request.qdcount != 1:
+    if request.qdcount != 1: # validating there is only one question
         logging.warning(f"Number of questions: {request.qdcount}")
         return -1
 
@@ -94,17 +97,22 @@ def handle_connection(sock):
 
 
     stream_id, file_name = parse_qname(request_question.qname.decode())
-    if stream_id <= 0:
-        logging.warning("Stream ID is <= 0!")
+    if stream_id <= 0: # usualy it means that the question was invalid
+        logging.warning("Stream ID is <= 0! Probably question is invalid.")
         return -1
 
     try:
+        # We received a query, firstly we have to send an acknowledgement
+		# Acknowledgement example: n.3333.down.nsserver.com (where n is the
+		# number of packets that we have to send back to complete a file transfer)
         with open(RESOURCES_DIR + file_name, 'rb') as file:
             file_size = len(file.read())
             file.seek(0)
 
+            # calculation the total number of packets that need to be transfered
             num_packets = file_size // READING_SIZE + (0 if file_size % READING_SIZE == 0 else 1)
 
+            # building and sending the acknowledgement
             ack = f"{num_packets}.{stream_id}.down.{DOMAIN}"
             response.qd = request_question
             response.qdcount = 1
@@ -112,31 +120,33 @@ def handle_connection(sock):
             response.ancount = 1
             
             if send_data(sock, bytes(response), source_addr) != 0:
-                raise Exception("")
+                raise Exception("Error when sending data!")
             
             # now we have to wait for confirmation and the client should ask for packet number 1
             current_packet = 1
-            err_count = 10
+            err_count = 10 # this is the number of retried connections before considering the connection closed
             previous_batch = 0
-            read_previous = False
-            resend = False
+            read_previous = False # read the preavious batch instead of the current one if true
+            resend = False # this bool is to determine if the packet should be resent
 
             sock.settimeout(4)
 
             while current_packet <= num_packets and err_count > 0:
                 if resend == True:
-                    r = send_data(sock, res_buffer, source_addr)    
+                    r = send_data(sock, res_buffer, source_addr)
                     if r != 0:
                         return -1
                     err_count -= 1
                     resend = False
                     continue
-
+                
+                # waiting for a packet request: (packet number).(stream id).up.(domain)
                 request, source_addr = receive_data(sock)
                 if request is None or request.qdcount != 1:
                     resend = True
                     continue
-
+                
+                # same processing steps
                 question = request.qd[0]
                 logging.info(f"Received query: {question.qname.decode()}")
 
@@ -146,23 +156,26 @@ def handle_connection(sock):
                     continue
                 packet_number = int(packet_number)
 
+                # validating the packet received
                 if stream_id_local != stream_id or packet_number == 0:
                     logging.warning("Packet number is 0!")
                     resend = True
                     continue
                 
                 if current_packet != packet_number:
-                    logging.warning("Wrong response number!")
                     if packet_number == current_packet - 1:
                         current_packet = packet_number
                         read_previous = True
+                        logging.warning(f"Previous packet requested!")
                     else:
+                        logging.error(f"Wrong packet number! Exptected packet {current_packet}, received value {packet_number}")
                         return -1
 
                 if read_previous:
                     file.seek(previous_batch)
                 previous_batch = file.tell()
 
+                # building the response with the necessary data
                 buffer = file.read(READING_SIZE)
                 response.qd = [question]
                 response.an = [DNSRR(rrname=question.qname, type='TXT', rdata=base64.b64encode(buffer))]
@@ -170,10 +183,11 @@ def handle_connection(sock):
 
                 send_data(sock, bytes(response), source_addr)
 
-                logging.success(f"Packet {current_packet} sent!")
+                # reseting values
                 err_count = 10
                 current_packet += 1
                 read_previous = False
+                logging.success(f"Packet {current_packet} sent!")
 
             if err_count == 0:
                 logging.warning("Lost connection!")
@@ -188,6 +202,9 @@ def handle_connection(sock):
         send_data(sock, bytes(response), source_addr)
         logging.warning(f"File {file_name} not found!")
         return 0
+    except Exception as e:
+        logging.error(f"handle_connection: {e}")
+        return -1
 
     return 0
 

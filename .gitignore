@@ -5,3 +5,4 @@ remote/bin
 remote/build
 .clangd
 .venv
+__pycache__

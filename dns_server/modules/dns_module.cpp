@@ -8,8 +8,6 @@
  */
 
 #include "dns_module.h"
-#include <stdexcept>
-#include <vector>
 
 /*###################################*/
 /*---------[ QueryTypeFunc ]---------*/
@@ -99,7 +97,7 @@ QueryType QueryTypeFunc::from_string(std::string str)
 /*---------[ ResultCode ]---------*/
 /*################################*/
 
-ResultCode ResultCodeFunc::from_num (int n)
+ResultCode ResultCodeFunc::from_num(int n)
 {
     switch(n){
         case 1:
@@ -230,7 +228,7 @@ std::string IPv6Addr::to_string() const
 /*---------[ BytePacketBuffer ]---------*/
 /*######################################*/
 
-size_t BytePacketBuffer::packet_size = 1024;
+size_t BytePacketBuffer::packet_size = 1024; // usually it's 512, but I had some problems with some queries and changed it to 1024
 
 BytePacketBuffer::BytePacketBuffer()
 {
@@ -245,7 +243,7 @@ BytePacketBuffer::BytePacketBuffer(char* new_buf, size_t len)
 
     if (len > packet_size)
     {
-        throw std::runtime_error("BytePacketBuffer: Size provided is greater that the packet size (512 bytes).");
+        throw std::runtime_error("BytePacketBuffer: Size provided is greater that the packet size (1024 bytes).");
     }
 
     for (size_t i = 0; i < len; i ++)
@@ -506,30 +504,6 @@ void BytePacketBuffer::set_u16(size_t pos, uint16_t val)
 /*---------[ DnsHeader ]---------*/
 /*################################*/
 
-DnsHeader::DnsHeader()
-{
-    id = 0;
-
-    questions = 0;
-    answers = 0;
-    authoritative_entries = 0;
-    resource_entries = 0;
-
-    opcode = 0;
-    rescode = ResultCode::NOERROR;
-    
-    recursion_desired = false;
-    truncated_message = false;
-    authoritative_answer = false;
-    response = false;
-
-    checking_disabled = false;
-    authed_data = false;
-    z = false;
-    recursion_available = false;
-
-}
-
 /*
  * Structure of a DNS Header:
  * 
@@ -581,6 +555,29 @@ DnsHeader::DnsHeader()
  *     The number of entries in the Additional section, which contains additional information, like extra resource records.
  */
 
+DnsHeader::DnsHeader()
+{
+    id = 0;
+
+    questions = 0;
+    answers = 0;
+    authoritative_entries = 0;
+    resource_entries = 0;
+
+    opcode = 0;
+    rescode = ResultCode::NOERROR;
+    
+    recursion_desired = false;
+    truncated_message = false;
+    authoritative_answer = false;
+    response = false;
+
+    checking_disabled = false;
+    authed_data = false;
+    z = false;
+    recursion_available = false;
+
+}
 
 void DnsHeader::read(BytePacketBuffer &buffer)
 {
@@ -728,7 +725,7 @@ void DnsQuestion::write(BytePacketBuffer &buffer)
     try {
         buffer.write_qname((char*) this->name.c_str());
         buffer.write_u16(QueryTypeFunc::to_num(qtype));
-        buffer.write_u16(1);
+        buffer.write_u16(1); // class IN
     } catch (std::runtime_error e) {
         throw e;
     }
@@ -737,8 +734,8 @@ void DnsQuestion::write(BytePacketBuffer &buffer)
 std::string DnsQuestion::to_string()
 {
     std::string s = "DnsQuestion { ";
-    s += "\tname: " + name + ", ";
-    s += "\tqtype: " + QueryTypeFunc::to_string(qtype) + ' ';
+    s += "name: " + name + ", ";
+    s += "qtype: " + QueryTypeFunc::to_string(qtype) + ' ';
     s += "}\n";
     return s;
 }
@@ -930,16 +927,20 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
                     if (i == 0) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
-                        if (chunk_len + 1 != data_len && chunk_len != chunk_size)
+                        if (chunk_len + 1 != data_len && chunk_len != chunk_size){
+                            delete[] domain;
                             throw std::runtime_error("TXT data length different from first chunk lengths!");
+                        }
                         continue;
                     }
                     
                     if (i == 256) // reading chunk len
                     {
                         size_t chunk_len = (size_t) buffer.read_u8();
-                        if (chunk_len + chunk_size + 2 != data_len)
+                        if (chunk_len + chunk_size + 2 != data_len){
+                            delete[] domain;
                             throw std::runtime_error("TXT data length different from second chunk lengths!");
+                        }
                         continue;
                     }
 
@@ -1235,6 +1236,7 @@ void DnsPacket::write(BytePacketBuffer &buffer)
 
 }
 
+// Gets a random answer record from the answers section (the answer must be of type A)
 IPv4Addr DnsPacket::get_random_a()
 {
     std::vector<IPv4Addr> a_answers;
@@ -1250,6 +1252,9 @@ IPv4Addr DnsPacket::get_random_a()
         return IPv4Addr(0);
 }
 
+// Gets all the records from the authorities section of the packet
+// that either have the same domain as qname or qname ends with domain.
+// Returns a list of tuples representing the domain and the NS value: (domain name, NS value of the domain)
 std::vector<std::pair<std::string, std::string>> DnsPacket::get_ns(std::string qname)
 {
     std::vector<std::pair<std::string, std::string>> result;
@@ -1257,16 +1262,18 @@ std::vector<std::pair<std::string, std::string>> DnsPacket::get_ns(std::string q
     for (auto rec : authorities)
     {
         bool ok_ending;
-        if (rec.domain.length() > qname.length())
+        if (rec.domain.length() > qname.length()) // if the domain name is larger there is no chance we meet the requirements
             continue;
         else if (rec.domain.length() == qname.length())
             ok_ending = qname.compare(rec.domain) == 0;
-        else 
+        else { // len(domain) < len(qname)
+               // check if qname ends with domain
             ok_ending = qname.compare(
                 qname.length() - rec.domain.length(), 
                 rec.domain.length(),
                 rec.domain.c_str()
                 ) == 0;
+        } 
 
         if (rec.qtype == QueryType::NS && ok_ending){
             std::string string_from_bytes = get_string_from_byte_array(rec.value);
@@ -1277,14 +1284,18 @@ std::vector<std::pair<std::string, std::string>> DnsPacket::get_ns(std::string q
     return result;
 }
 
+// Gets all the NS records from the authorities section with the above function
+// and searches through the additional resources section to find if the NS is resolved.
+// Returns the first match it finds
 IPv4Addr DnsPacket::get_resolved_ns(std::string qname)
 {
     std::vector<std::pair<std::string, std::string>> nses = get_ns(qname);
 
     for (auto rec : this->resources)
     {
+        // checks if the domain is within the authorities
         bool ok_domain =  std::any_of(nses.begin(), nses.end(), [&](const auto& pair) {
-                return pair.second == rec.domain;
+                return pair.second == rec.domain; // first -> domain, second -> NS value
             });
         if (rec.qtype == QueryType::A && ok_domain)
             return IPv4Addr(rec.value);
@@ -1292,6 +1303,8 @@ IPv4Addr DnsPacket::get_resolved_ns(std::string qname)
     return IPv4Addr(0);
 }
 
+// Gets all the NS records from the authorities section with the get_ns function
+// and returns the list of the NS names
 std::vector<std::string> DnsPacket::get_unresolved_ns(std::string qname)
 {
     std::vector<std::string> result;
@@ -1299,7 +1312,7 @@ std::vector<std::string> DnsPacket::get_unresolved_ns(std::string qname)
 
     for (auto& ns : nses)
     {
-        result.push_back(ns.second);
+        result.push_back(ns.second); // first -> domain, second -> NS value
     }
 
     return result;
@@ -1345,7 +1358,6 @@ std::string get_string_from_byte_array(std::vector<uint8_t> byte_array)
 
     for (int i = 0; i < byte_array.size(); i ++){
         result[i] = byte_array[i];
-        // std::cout << byte_array[i] << " " << string << std::endl;
     }
     return result;
 }

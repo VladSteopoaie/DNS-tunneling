@@ -139,9 +139,6 @@ DnsPacket lookup(std::string qname, QueryType qtype, IPv4Addr ns)
 
         const size_t request_size = request_buffer.getPos(); // pakcet size
 
-        // char request_bytes[p_size];
-        // std::copy(request_buffer.buf.begin(), request_buffer.buf.end(), request_bytes);
-
         // sending the request
         ssize_t bytes_sent = sendto(socket, request_buffer.buf.data(), request_size, 0, (struct sockaddr*) &server_addr, sizeof(server_addr));
         if (bytes_sent <= 0)
@@ -228,7 +225,6 @@ DnsPacket recursive_lookup(std::string qname, QueryType qtype)
 
         // trying to get the ip of the unresolved ns
         DnsPacket recursive_response = recursive_lookup(new_ns_names.front(), QueryType::A);
-        // std::cout << "response: " << recursive_response.to_string() << std::endl;
 
         new_ns = recursive_response.get_random_a();
         if (new_ns.to_string() != "0.0.0.0") // if the ip is 0.0.0.0 it means there are no entries
@@ -318,8 +314,6 @@ void handle_query(int socket)
         packet.write(response_buffer);
 
         const size_t response_size = response_buffer.getPos();
-        // char response_bytes[datalen];
-        // std::copy(response_buffer.buf.begin(), response_buffer.buf.end(), response_bytes);
 
         ssize_t bytes_sent = sendto(socket, response_buffer.buf.data(), response_size, 0, (struct sockaddr*) &source_addr, source_addrlen);
 

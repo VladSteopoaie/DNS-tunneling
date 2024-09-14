@@ -1,3 +1,12 @@
+/*################################*/
+/*---------[ Disclaimer ]---------*/
+/*################################*/
+
+/**
+ * This simple DNS server is a C++ adaptation from a Rust DNS server
+ * You can see the server and the full documentation here: https://github.com/EmilHernvall/dnsguide/tree/master
+ */
+
 #ifndef DNS_MODULE_H
 #define DNS_MODULE_H
 
@@ -195,6 +204,8 @@ struct DnsPacket{
 
     std::string to_string();
 };
+
+// Some additional helper functions
 
 std::vector<uint8_t> get_byte_array_from_string(std::string string); 
 std::string get_string_from_byte_array(std::vector<uint8_t> byte_array);

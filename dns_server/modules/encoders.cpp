@@ -1,3 +1,12 @@
+/*################################*/
+/*---------[ Disclaimer ]---------*/
+/*################################*/
+
+/**
+ * This script is generated with ChatGPT for demonstration purposes.
+ * In case you want to use them, make sure to have a look on the code!
+ */
+
 #include "encoders.h"
 
 const std::string base32_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

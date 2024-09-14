@@ -10,7 +10,8 @@
 
 #define DOMAIN "tunnel.mydomain.top."
 #define DOMAIN_LEN 3 // 3 tokens for the domain as it is (tunnel, mydomain and top)
-#define READING_SIZE 300
+#define READING_SIZE 300 // the TXT size on the server is 400 bytes, since we are encoding the text with base64
+						 // for each 3 bytes of data we get 4 bytes of encoded data
 #define RESOURCES_DIR "/etc/tunnel/"
 
 // Splits a string into a vector of strings
@@ -68,7 +69,6 @@ std::pair<int, std::string> parse_qname(std::string qname, bool decode = true)
 int SendData(int socket, BytePacketBuffer response_buffer, struct sockaddr *source_addr, socklen_t source_addrlen)
 {
 	const size_t response_size = response_buffer.getPos();
-	// const char *res_bytes = (char *)response_buffer.buf.data();
 
 	ssize_t bytes_sent = sendto(socket, response_buffer.buf.data(), response_size, 0, source_addr, source_addrlen);
 
@@ -114,7 +114,7 @@ int handle_connection(int socket)
 		if (clear_socket_timeout(socket) < 0)
 			std::cout << "Warninig: clearing socket timeout failed!";
 
-		// Receiving data
+		// receiving data
 		request = ReceiveData(socket, (struct sockaddr *)&source_addr, source_addrlen);
 
 		if (request.header.id == 0)
