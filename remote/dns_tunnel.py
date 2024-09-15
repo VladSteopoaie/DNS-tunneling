@@ -184,10 +184,10 @@ def handle_connection(sock):
                 send_data(sock, bytes(response), source_addr)
 
                 # reseting values
+                logging.success(f"Packet {current_packet} sent!")
                 err_count = 10
                 current_packet += 1
                 read_previous = False
-                logging.success(f"Packet {current_packet} sent!")
 
             if err_count == 0:
                 logging.warning("Lost connection!")

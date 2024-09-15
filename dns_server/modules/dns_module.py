@@ -54,20 +54,21 @@ def response_code_to_number(string):
 # Returns a list of tuples representing the domain and the NS value: (domain name, NS value of the domain)
 def get_ns(packet, qname):
     result = list()
-    if packet.nscount > 0:
-        for record in packet.ns:
-            domain = record.rrname.decode()
-            ok_ending = False
-            if (len(domain) > len(qname)): # if the domain name is larger there is no chance we meet the requirements
-                continue 
-            elif len(domain) == len(qname):
-                ok_ending = (domain == qname)
-            else: # len(domain) < len(qname)
-                # check if qname ends with domain
-                ok_ending = (qname[-len(domain):] == domain)
-            
-            if record.type == 2 and ok_ending: # NS is type 2
-                result.append((domain, record.rdata.decode()))
+    for i in range(packet.nscount):
+        record = packet.ns[i]
+        domain = record.rrname.decode()
+
+        ok_ending = False
+        if (len(domain) > len(qname)): # if the domain name is larger there is no chance we meet the requirements
+            continue 
+        elif len(domain) == len(qname):
+            ok_ending = (domain == qname)
+        else: # len(domain) < len(qname)
+            # check if qname ends with domain
+            ok_ending = (qname[-len(domain):] == domain)
+        
+        if record.type == 2 and ok_ending: # NS is type 2
+            result.append((domain, record.rdata.decode()))
 
     return result
 
@@ -77,15 +78,15 @@ def get_ns(packet, qname):
 def get_resolved_ns(packet, qname):
     nses = get_ns(packet, qname)
 
-    if packet.arcount > 0:
-        for record in packet.ar:
-            domain = record.rrname.decode()
+    for i in range(packet.arcount):
+        record = packet.ar[i]
+        domain = record.rrname.decode()
 
-            # checks if the domain is within the authorities
-            ok_domain = domain in [ns[1] for ns in nses] # ns = (domain, NS value) 
+        # checks if the domain is within the authorities
+        ok_domain = domain in [ns[1] for ns in nses] # ns = (domain, NS value) 
 
-            if record.type == 1 and ok_domain: # A is type 1
-                return record.rdata 
+        if record.type == 1 and ok_domain: # A is type 1
+            return record.rdata 
     return None
 
 # Gets all the NS records from the authorities section with the get_ns function

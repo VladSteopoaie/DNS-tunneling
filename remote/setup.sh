@@ -9,5 +9,5 @@ echo -e "\nsource /root/.venv/bin/activate" >> /root/.bashrc
 
 cd /scripts/
 make -f makefile_tunnel
-# bin/dns_tunnel
-# /root/.venv/bin/python dns_tunnel.py
+# bin/dns_tunnel # to start the c++ server
+# /root/.venv/bin/python dns_tunnel.py # to start the python server
