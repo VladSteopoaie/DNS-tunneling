@@ -1,4 +1,4 @@
-# DNS-tunneling
+# DNS tunneling
 
 ## Contents
 - [Scenario](#scenario)
